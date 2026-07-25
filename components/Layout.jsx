@@ -46,8 +46,8 @@ export default function Layout({ children }) {
 
           <div className="flex items-center space-x-6 sm:space-x-8 text-[11px] font-medium">
             <Link href="/about" className="hover:text-black transition">ABOUT</Link>
-            <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-black transition">GITHUB</a>
-            <a href="https://space.bilibili.com" target="_blank" rel="noreferrer" className="hover:text-black transition">BILIBILI</a>
+            <a href="https://github.com/UMI1220" target="_blank" rel="noreferrer" className="hover:text-black transition">GITHUB</a>
+            <a href="https://space.bilibili.com/3546934872640225" target="_blank" rel="noreferrer" className="hover:text-black transition">BILIBILI</a>
           </div>
         </div>
       </footer>
