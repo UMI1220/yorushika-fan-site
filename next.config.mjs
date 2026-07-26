@@ -1,8 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
+  // 开启静态导出（如果使用的是纯静态 Pages 部署）
+  output: 'export',
+  // 开启尾部斜杠自动兼容，防止 Cloudflare Pages 报 404
+  trailingSlash: true,
   images: {
-    unoptimized: true, // 禁用 Next.js 默认图片优化（Cloudflare 托管必须）
+    unoptimized: true, // 静态导出下需禁用默认图片优化
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
