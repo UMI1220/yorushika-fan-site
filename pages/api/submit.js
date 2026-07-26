@@ -1,39 +1,23 @@
-export const runtime = 'edge';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { type, title, author, category, description, totalPages, pages, coverImg } = req.body;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const supabase = createClient(supabaseUrl, supabaseKey);
 
-    if (type === 'submission') {
-      // 插入刊物投稿
-      const { data, error } = await supabase.from('magazines').insert([
-        {
-          title,
-          author,
-          category,
-          description,
-          total_pages: Number(totalPages) || 1,
-          cover_img: coverImg || '',
-          pages: pages || [],
-        },
-      ]);
-      if (error) throw error;
-    } else {
-      // 插入意见反馈
-      const { data, error } = await supabase.from('feedbacks').insert([
-        { description },
-      ]);
-      if (error) throw error;
-    }
-
-    return res.status(200).json({ success: true, message: '提交成功！' });
-  } catch (err) {
-    console.error('Submit API Error:', err);
-    return res.status(500).json({ error: err.message });
+    return res.status(200).json({ success: true, message: 'API ready' });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
   }
 }

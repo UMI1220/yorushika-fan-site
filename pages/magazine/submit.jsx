@@ -35,7 +35,7 @@ export default function SubmitPage() {
         const body = new FormData();
         body.append('file', formData.file);
         body.append('title', formData.title || formData.file.name);
-        body.append('author', formData.author || '匿名');
+        body.append('author', formData.author || '匿名'); // 兜底处理
         body.append('description', formData.description);
 
         const res = await fetch('/api/submit', {
