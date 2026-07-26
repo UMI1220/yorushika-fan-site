@@ -1,5 +1,5 @@
 name = "yorushika-fan-site"
-compatibility_date = "2024-09-23"
+compatibility_date = "2026-07-26"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
@@ -9,7 +9,3 @@ ENVIRONMENT = "production"
 binding = "DB"
 database_name = "twikoo"
 database_id = "163732de-b424-462c-836f-17a00e020b5e"
-
-[[r2_buckets]]
-binding = "PDF_BUCKET"
-bucket_name = "yorushika-magazine-bucket"

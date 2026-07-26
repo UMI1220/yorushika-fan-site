@@ -1,169 +1,127 @@
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { supabase } from '../../lib/supabase';
+import Link from 'next/link';
+import { createClient } from '@supabase/supabase-js';
 
-export default function MagazineDetail() {
-  const router = useRouter();
-  const { id } = router.query;
-  const [magazine, setMagazine] = useState(null);
-  const [annotations, setAnnotations] = useState([]);
-  const [nickname, setNickname] = useState('');
-  const [commentText, setCommentText] = useState('');
-  const [selectedPage, setSelectedPage] = useState(0);
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!id) return;
-
-    // 获取单篇刊物
-    async function fetchMagazine() {
-      const { data, error } = await supabase.from('magazines').select('*').eq('id', id).single();
-      if (data) setMagazine(data);
-    }
-
-    // 获取所有戳记评论
-    fetchAnnotations();
-    fetchMagazine();
-  }, [id]);
-
-  const fetchAnnotations = async () => {
-    if (!id) return;
-    const res = await fetch(`/api/stamp?magazineId=${id}`);
-    const data = await res.json();
-    if (data.annotations) {
-      setAnnotations(data.annotations);
-    }
-  };
-
-  const handleAddStamp = async (e) => {
-    e.preventDefault();
-    if (!commentText.trim()) return alert('请输入戳记评论内容');
-    setSubmitting(true);
-
-    try {
-      const res = await fetch('/api/stamp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          magazineId: id,
-          pageIndex: selectedPage,
-          content: commentText,
-          nickname: nickname.trim() || '匿名粉丝',
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setCommentText('');
-        fetchAnnotations(); // 刷新戳记评论列表
-      } else {
-        alert('留下戳记失败：' + data.error);
-      }
-    } catch (err) {
-      alert('发送失败：' + err.message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!magazine) return <div style={{ padding: '40px', textAlign: 'center' }}>刊物加载中...</div>;
-
-  const filteredAnnotations = annotations.filter((a) => a.page_index === selectedPage);
-
-  return (
-    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
-      <h1>{magazine.title}</h1>
-      <p style={{ color: '#666' }}>作者：{magazine.author} | 分类：{magazine.category}</p>
-      <p>{magazine.description}</p>
-
-      <hr style={{ margin: '20px 0', borderColor: '#eee' }} />
-
-      {/* 页码选择器 */}
-      <div style={{ margin: '15px 0', display: 'flex', gap: '10px', alignItems: 'center' }}>
-        <span>切换当前阅读页：</span>
-        {(magazine.pages || [magazine.cover_img]).map((_, idx) => (
-          <button
-            key={idx}
-            onClick={() => setSelectedPage(idx)}
-            style={{
-              padding: '5px 12px',
-              backgroundColor: selectedPage === idx ? '#e74c3c' : '#f0f0f0',
-              color: selectedPage === idx ? '#fff' : '#333',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            第 {idx + 1} 页
-          </button>
-        ))}
-      </div>
-
-      {/* 刊物图片展示 */}
-      <div style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '6px', textAlign: 'center', backgroundColor: '#fafafa' }}>
-        <img
-          src={(magazine.pages && magazine.pages[selectedPage]) || magazine.cover_img || 'https://via.placeholder.com/600x800?text=Page'}
-          alt={`Page ${selectedPage + 1}`}
-          style={{ maxWidth: '100%', maxHeight: '700px', objectFit: 'contain' }}
-        />
-      </div>
-
-      {/* 戳记评论互动区 */}
-      <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #e0e0e0', borderRadius: '8px', backgroundColor: '#fff' }}>
-        <h3>🔖 本页戳记与评论 ({filteredAnnotations.length})</h3>
-
-        {/* 发表戳记评论表单 */}
-        <form onSubmit={handleAddStamp} style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-            <input
-              type="text"
-              placeholder="你的昵称 (可选，默认匿名)"
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              style={{ padding: '8px', width: '200px', border: '1px solid #ccc', borderRadius: '4px' }}
-            />
-            <input
-              type="text"
-              placeholder="在此留下你的感悟或对本页的戳记评论..."
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              style={{ padding: '8px', flex: 1, border: '1px solid #ccc', borderRadius: '4px' }}
-            />
-            <button
-              type="submit"
-              disabled={submitting}
-              style={{
-                padding: '8px 20px',
-                backgroundColor: '#e74c3c',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              {submitting ? '发送中...' : '💮 盖戳'}
-            </button>
-          </div>
-        </form>
-
-        {/* 展示已有戳记评论列表 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {filteredAnnotations.length === 0 ? (
-            <p style={{ color: '#888', fontStyle: 'italic' }}>本页还没有人留下戳记，快抢沙发吧！</p>
-          ) : (
-            filteredAnnotations.map((item) => (
-              <div key={item.id} style={{ padding: '10px', backgroundColor: '#f9f9f9', borderLeft: '4px solid #e74c3c', borderRadius: '2px' }}>
-                <div style={{ fontSize: '13px', color: '#777', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>👤 {item.nickname}</span>
-                  <span>{new Date(item.created_at).toLocaleString()}</span>
-                </div>
-                <p style={{ margin: '5px 0 0', color: '#333' }}>{item.content}</p>
-              </div>
-            ))
-          )}
+export default function MagazineDetail({ magazine, error }) {
+  if (error || !magazine) {
+    return (
+      <div className="min-h-screen bg-[#fafbfc] flex items-center justify-center p-6 text-center">
+        <div>
+          <p className="text-gray-500 font-serif mb-4">未找到该刊物，可能已被移走...</p>
+          <Link href="/magazine" className="px-5 py-2 bg-[#88abac] text-white text-xs rounded-full">
+            ← 返回杂志列表
+          </Link>
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#fafbfc] text-[#4a5568] flex flex-col justify-between font-sans">
+      <div>
+        <header className="w-full bg-white border-b border-gray-100 py-4 px-8 flex justify-between items-center shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 border-2 border-black rounded-full flex items-center justify-center">
+              <div className="w-1 h-5 bg-black rounded-full"></div>
+            </div>
+            <Link href="/" className="font-serif text-xl tracking-widest text-gray-800">ヨルシカ</Link>
+          </div>
+
+          <Link href="/magazine" className="text-xs text-gray-500 hover:text-black font-mono">
+            ← BACK TO MAGAZINE
+          </Link>
+        </header>
+
+        <main className="max-w-5xl mx-auto px-6 py-10">
+          <div className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm mb-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <span className="px-3 py-1 bg-[#88abac]/10 text-[#88abac] text-xs font-mono rounded-full font-medium">
+                  {magazine.category || '电子刊物'}
+                </span>
+                <span className="text-xs text-gray-400">
+                  {new Date(magazine.created_at).toLocaleDateString()}
+                </span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-serif text-gray-800 tracking-wide mb-2">
+                {magazine.title}
+              </h1>
+              <p className="text-xs text-gray-400">
+                作者 / 编辑：<span className="text-gray-600 font-medium">{magazine.author || '匿名'}</span>
+              </p>
+              {magazine.description && (
+                <p className="text-sm text-gray-500 mt-4 leading-relaxed font-light border-t border-gray-100 pt-4">
+                  {magazine.description}
+                </p>
+              )}
+            </div>
+
+            {magazine.pdf_url && (
+              <a
+                href={magazine.pdf_url}
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-medium transition duration-200 shadow-sm flex items-center gap-2 shrink-0"
+              >
+                <span>📥</span> 下载高精原文件 PDF
+              </a>
+            )}
+          </div>
+
+          {magazine.pdf_url ? (
+            <div className="bg-white p-2 rounded-2xl border border-gray-100 shadow-md overflow-hidden h-[800px]">
+              <iframe
+                src={`${magazine.pdf_url}#toolbar=0`}
+                className="w-full h-full rounded-xl"
+                title={magazine.title}
+              ></iframe>
+            </div>
+          ) : (
+            <div className="bg-white p-12 text-center rounded-2xl border border-gray-100 text-gray-400 font-serif">
+              暂未关联 PDF 预览地址...
+            </div>
+          )}
+        </main>
+      </div>
+
+      <footer className="w-full bg-[#88abac] text-white py-6 px-8 mt-16">
+        <div className="max-w-5xl mx-auto flex justify-between items-center text-xs font-mono">
+          <p>© 2026 YORUSHIKA FAN SITE.</p>
+          <Link href="/magazine" className="hover:underline">MAGAZINE INDEX</Link>
+        </div>
+      </footer>
     </div>
   );
 }
 
+export async function getServerSideProps({ params }) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return { props: { error: 'Supabase 未配置' } };
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase
+      .from('magazines')
+      .select('*')
+      .eq('id', params.id)
+      .single();
+
+    if (error) throw error;
+
+    return {
+      props: {
+        magazine: data || null,
+      },
+    };
+  } catch (err) {
+    return {
+      props: {
+        error: err.message,
+      },
+    };
+  }
+}
