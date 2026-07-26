@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { createClient } from '@supabase/supabase-js';
 
+export const runtime = 'edge';
+
 export default function MagazineDetail({ magazine, error }) {
   if (error || !magazine) {
     return (
