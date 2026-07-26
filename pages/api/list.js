@@ -1,30 +1,35 @@
-export const runtime = 'edge';
+import { supabase } from '../../lib/supabase';
 
-export default async function handler(req) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 返回演示用的初始化列表
-  const dbData = {
-    magazines: [
-      {
-        id: 'echo-issue-01',
-        title: '【回声】群刊第一期',
-        period: '2026 盛夏号 · 赛博存档特刊',
-        description: '收录了本期社区所有优秀的访谈、诗歌、考据及视觉艺术作品。',
-        totalPages: 52,
-        coverImg: '/magazine-pages/page-1.jpg',
-      },
-    ],
-    annotations: [],
-  };
+  try {
+    const { data: magazines, error } = await supabase
+      .from('magazines')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-  return new Response(JSON.stringify(dbData), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+    if (error) throw error;
+
+    const formatted = (magazines || []).map((item) => ({
+      id: item.id,
+      title: item.title,
+      author: item.author,
+      category: item.category,
+      description: item.description,
+      totalPages: item.total_pages,
+      coverImg: item.cover_img,
+      pages: item.pages,
+      createdAt: item.created_at,
+    }));
+
+    return res.status(200).json({
+      magazines: formatted,
+    });
+  } catch (err) {
+    console.error('List API Error:', err);
+    return res.status(500).json({ error: err.message });
+  }
 }

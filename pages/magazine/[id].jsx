@@ -1,177 +1,169 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import Layout from '../../components/Layout';
+import { supabase } from '../../lib/supabase';
 
-export default function MagazineReader() {
+export default function MagazineDetail() {
   const router = useRouter();
   const { id } = router.query;
-  const [currentPage, setCurrentPage] = useState(1);
-  const totalPages = 52; // 《回声》第一期总页数
+  const [magazine, setMagazine] = useState(null);
+  const [annotations, setAnnotations] = useState([]);
+  const [nickname, setNickname] = useState('');
+  const [commentText, setCommentText] = useState('');
+  const [selectedPage, setSelectedPage] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
 
-  // 状态：记录当前图片是否加载成功
-  const [imgLoaded, setImgLoaded] = useState(false);
+  useEffect(() => {
+    if (!id) return;
 
-  // 存储所有页面的戳记数据
-  const [annotations, setAnnotations] = useState([
-    { page: 1, x: 50, y: 50, author: '听海', content: '欢迎来到回声第一页！' }
-  ]);
-  const [showCommentModal, setShowCommentModal] = useState(false);
-  const [commentPos, setCommentPos] = useState({ x: 0, y: 0 });
-  const [newComment, setNewComment] = useState('');
-  const [commentAuthor, setCommentAuthor] = useState('');
+    // 获取单篇刊物
+    async function fetchMagazine() {
+      const { data, error } = await supabase.from('magazines').select('*').eq('id', id).single();
+      if (data) setMagazine(data);
+    }
 
-  // 精准计算并捕获当前页面点击坐标
-  const handlePageClick = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setCommentPos({ x, y });
-    setShowCommentModal(true);
+    // 获取所有戳记评论
+    fetchAnnotations();
+    fetchMagazine();
+  }, [id]);
+
+  const fetchAnnotations = async () => {
+    if (!id) return;
+    const res = await fetch(`/api/stamp?magazineId=${id}`);
+    const data = await res.json();
+    if (data.annotations) {
+      setAnnotations(data.annotations);
+    }
   };
 
-  const handleAddAnnotation = (e) => {
+  const handleAddStamp = async (e) => {
     e.preventDefault();
-    if (!newComment.trim()) return;
-    setAnnotations([
-      ...annotations,
-      { page: currentPage, x: commentPos.x, y: commentPos.y, author: commentAuthor || '匿名友人', content: newComment }
-    ]);
-    setNewComment('');
-    setCommentAuthor('');
-    setShowCommentModal(false);
+    if (!commentText.trim()) return alert('请输入戳记评论内容');
+    setSubmitting(true);
+
+    try {
+      const res = await fetch('/api/stamp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          magazineId: id,
+          pageIndex: selectedPage,
+          content: commentText,
+          nickname: nickname.trim() || '匿名粉丝',
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCommentText('');
+        fetchAnnotations(); // 刷新戳记评论列表
+      } else {
+        alert('留下戳记失败：' + data.error);
+      }
+    } catch (err) {
+      alert('发送失败：' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (!magazine) return <div style={{ padding: '40px', textAlign: 'center' }}>刊物加载中...</div>;
+
+  const filteredAnnotations = annotations.filter((a) => a.page_index === selectedPage);
 
   return (
-    <Layout>
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        
-        {/* 顶部导航与翻页控制栏 */}
-        <div className="flex justify-between items-center mb-6 bg-white/85 backdrop-blur-md px-6 py-3 rounded-2xl border border-zinc-200/60 shadow-sm relative z-20">
+    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>{magazine.title}</h1>
+      <p style={{ color: '#666' }}>作者：{magazine.author} | 分类：{magazine.category}</p>
+      <p>{magazine.description}</p>
+
+      <hr style={{ margin: '20px 0', borderColor: '#eee' }} />
+
+      {/* 页码选择器 */}
+      <div style={{ margin: '15px 0', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <span>切换当前阅读页：</span>
+        {(magazine.pages || [magazine.cover_img]).map((_, idx) => (
           <button
-            onClick={() => router.push('/magazine')}
-            className="text-xs font-mono text-zinc-500 hover:text-[#597b7c] transition cursor-pointer"
+            key={idx}
+            onClick={() => setSelectedPage(idx)}
+            style={{
+              padding: '5px 12px',
+              backgroundColor: selectedPage === idx ? '#e74c3c' : '#f0f0f0',
+              color: selectedPage === idx ? '#fff' : '#333',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
           >
-            &larr; 返回目录
+            第 {idx + 1} 页
           </button>
-
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => { setCurrentPage(p => Math.max(1, p - 1)); setImgLoaded(false); }}
-              disabled={currentPage === 1}
-              className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 disabled:opacity-30 rounded-lg text-xs font-mono cursor-pointer"
-            >
-              &larr; 上一页
-            </button>
-            <span className="text-xs font-mono text-zinc-600 font-medium">
-              第 {currentPage} 页 / 共 {totalPages} 页
-            </span>
-            <button
-              onClick={() => { setCurrentPage(p => Math.min(totalPages, p + 1)); setImgLoaded(false); }}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 disabled:opacity-30 rounded-lg text-xs font-mono cursor-pointer"
-            >
-              下一页 &rarr;
-            </button>
-          </div>
-        </div>
-
-        {/* 阅读视窗外层容器 */}
-        <div className="relative bg-[#f9f8f6] border border-zinc-200 rounded-2xl shadow-sm overflow-hidden min-h-[750px] flex flex-col items-center justify-center p-6">
-          
-          {/* 核心容器 */}
-          <div 
-            className="relative w-full max-w-xl aspect-[1/1.414] bg-white shadow-md rounded-xl border border-zinc-200/80 overflow-hidden cursor-crosshair select-none flex items-center justify-center"
-            onClick={handlePageClick}
-          >
-            {/* 1. 杂志高清图片层 */}
-            <img 
-              src={`/magazine-pages/page-${currentPage}.jpg`} 
-              alt={`Echo Issue 01 Page ${currentPage}`}
-              className="absolute inset-0 w-full h-full object-contain z-10"
-              onLoad={() => setImgLoaded(true)}
-              onError={() => setImgLoaded(false)}
-            />
-
-            {/* 2. 降级备用提示层：只有当图片未成功加载时才显示，绝不与图片重叠 */}
-            {!imgLoaded && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-white z-0 pointer-events-none">
-                <span className="text-3xl mb-2">📖</span>
-                <p className="text-xs font-serif text-zinc-700 font-medium">【回声】群刊第一期 - 第 {currentPage} 页</p>
-                <p className="text-[10px] font-mono text-zinc-400 mt-2 max-w-xs leading-relaxed">
-                  提示：尚未检测到 <code className="bg-zinc-100 px-1 py-0.5 rounded text-zinc-600">public/magazine-pages/page-{currentPage}.jpg</code>。<br/>请运行 Python 脚本生成图片或检查路径！
-                </p>
-              </div>
-            )}
-
-            {/* 3. 戳记小圆点层（置于最顶层 z-30） */}
-            {annotations
-              .filter(ann => ann.page === currentPage)
-              .map((ann, idx) => (
-                <div
-                  key={idx}
-                  className="absolute w-5 h-5 -ml-2.5 -mt-2.5 bg-[#a5c9ca] border-2 border-white rounded-full shadow-md flex items-center justify-center cursor-pointer group hover:scale-125 transition-transform z-30"
-                  style={{ left: `${ann.x}%`, top: `${ann.y}%` }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <span className="text-[10px] text-zinc-900 font-bold">💬</span>
-                  <div className="absolute bottom-6 left-1/2 -translate-x-1/2 hidden group-hover:block bg-zinc-900 text-white text-[11px] px-3 py-1.5 rounded-lg whitespace-nowrap shadow-xl z-40 font-sans">
-                    <span className="text-[#a5c9ca] font-medium">{ann.author}：</span>{ann.content}
-                  </div>
-                </div>
-              ))}
-          </div>
-
-        </div>
-
-        {/* 底部提示 */}
-        <div className="text-center mt-4">
-          <p className="text-[11px] font-mono text-zinc-400">
-            💡 提示：点击“上一页” / “下一页”无缝切换，点击页面任意位置即可留下阅读戳记！
-          </p>
-        </div>
-
-        {/* 发表批注弹窗 */}
-        {showCommentModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-fade-in">
-              <h3 className="text-sm font-serif text-zinc-800 font-medium">✨ 在第 {currentPage} 页留下阅读戳记</h3>
-              <form onSubmit={handleAddAnnotation} className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="你的昵称 (选填，默认 匿名友人)"
-                  value={commentAuthor}
-                  onChange={(e) => setCommentAuthor(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#a5c9ca]"
-                />
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="写下你对这一页的感悟、考据或吐槽..."
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  className="w-full bg-zinc-50 border border-zinc-200 rounded-xl p-3 text-xs focus:outline-none focus:border-[#a5c9ca] resize-none"
-                />
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowCommentModal(false)}
-                    className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-full text-xs cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-[#a5c9ca] hover:bg-[#8eb8b9] text-zinc-900 rounded-full text-xs font-medium cursor-pointer"
-                  >
-                    钉在这一页 📌
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
+        ))}
       </div>
-    </Layout>
+
+      {/* 刊物图片展示 */}
+      <div style={{ border: '1px solid #ddd', padding: '10px', borderRadius: '6px', textAlign: 'center', backgroundColor: '#fafafa' }}>
+        <img
+          src={(magazine.pages && magazine.pages[selectedPage]) || magazine.cover_img || 'https://via.placeholder.com/600x800?text=Page'}
+          alt={`Page ${selectedPage + 1}`}
+          style={{ maxWidth: '100%', maxHeight: '700px', objectFit: 'contain' }}
+        />
+      </div>
+
+      {/* 戳记评论互动区 */}
+      <div style={{ marginTop: '30px', padding: '20px', border: '1px solid #e0e0e0', borderRadius: '8px', backgroundColor: '#fff' }}>
+        <h3>🔖 本页戳记与评论 ({filteredAnnotations.length})</h3>
+
+        {/* 发表戳记评论表单 */}
+        <form onSubmit={handleAddStamp} style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+            <input
+              type="text"
+              placeholder="你的昵称 (可选，默认匿名)"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              style={{ padding: '8px', width: '200px', border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            <input
+              type="text"
+              placeholder="在此留下你的感悟或对本页的戳记评论..."
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              style={{ padding: '8px', flex: 1, border: '1px solid #ccc', borderRadius: '4px' }}
+            />
+            <button
+              type="submit"
+              disabled={submitting}
+              style={{
+                padding: '8px 20px',
+                backgroundColor: '#e74c3c',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              }}
+            >
+              {submitting ? '发送中...' : '💮 盖戳'}
+            </button>
+          </div>
+        </form>
+
+        {/* 展示已有戳记评论列表 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {filteredAnnotations.length === 0 ? (
+            <p style={{ color: '#888', fontStyle: 'italic' }}>本页还没有人留下戳记，快抢沙发吧！</p>
+          ) : (
+            filteredAnnotations.map((item) => (
+              <div key={item.id} style={{ padding: '10px', backgroundColor: '#f9f9f9', borderLeft: '4px solid #e74c3c', borderRadius: '2px' }}>
+                <div style={{ fontSize: '13px', color: '#777', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>👤 {item.nickname}</span>
+                  <span>{new Date(item.created_at).toLocaleString()}</span>
+                </div>
+                <p style={{ margin: '5px 0 0', color: '#333' }}>{item.content}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
+

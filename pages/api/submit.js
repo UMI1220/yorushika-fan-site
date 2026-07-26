@@ -1,61 +1,38 @@
-import fs from 'fs';
-import path from 'path';
+import { supabase } from '../../lib/supabase';
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '50mb',
-    },
-  },
-};
-
-export default function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const data = req.body;
-    const filePath = path.resolve(process.cwd(), 'local_database.json');
-    
-    let dbData = { magazines: [], annotations: [] };
-    if (fs.existsSync(filePath)) {
-      dbData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const { type, title, author, category, description, totalPages, pages, coverImg } = req.body;
+
+    if (type === 'submission') {
+      // 插入刊物投稿
+      const { data, error } = await supabase.from('magazines').insert([
+        {
+          title,
+          author,
+          category,
+          description,
+          total_pages: Number(totalPages) || 1,
+          cover_img: coverImg || '',
+          pages: pages || [],
+        },
+      ]);
+      if (error) throw error;
+    } else {
+      // 插入意见反馈
+      const { data, error } = await supabase.from('feedbacks').insert([
+        { description },
+      ]);
+      if (error) throw error;
     }
 
-    if (data.type === 'submission') {
-      const newMagazine = {
-        id: 'mag-' + Date.now(),
-        title: data.title || '無題の群刊',
-        author: data.author || '匿名创作者',
-        category: data.category || '刊物/电子书 (JPG多图)',
-        description: data.description || '',
-        totalPages: data.totalPages || 1,
-        pages: data.pages || [],
-        coverImg: (data.pages && data.pages[0]) || '/magazine-pages/page-1.jpg',
-        created_at: new Date().toISOString()
-      };
-      dbData.magazines.push(newMagazine);
-   export const runtime = 'edge';
-
-export default async function handler(req) {
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
-
-  try {
-    // 模拟成功接收数据，不写本地文件
-    return new Response(JSON.stringify({ success: true, message: 'Demo submit success' }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return res.status(200).json({ success: true, message: '提交成功！' });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    console.error('Submit API Error:', err);
+    return res.status(500).json({ error: err.message });
   }
 }
