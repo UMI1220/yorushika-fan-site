@@ -24,11 +24,11 @@ const allAlbums = [
   { id: 20, name: 'ブレーメン', date: '2022.07.04', tracks: '1首', cover: '/covers/20.jpg', quote: '「音楽隊は行く、どこまでも遠い場所へ」' },
   { id: 21, name: '左右盲', date: '2022.07.25', tracks: '1首', cover: '/covers/21.jpg', quote: '「右と左も分からないまま、君の手を握る」' },
   { id: 22, name: 'チノカテ', date: '2022.08.29', tracks: '1首', cover: '/covers/22.jpg', quote: '「地の糧を食み、静かな生活を愛す」' },
-  { id: 23, name: 'テレパス', date: '2023.01.12', tracks: '1首', cover: '/covers/23.jpg', quote: '「言葉を交わさずとも、心で繋がる瞬間」' },
+  { id: 23, name: 'テレパス', date: '2023.01.12', tracks: '1首', cover: '/covers/23.jpg', quote: '「言葉を交わさずとも、心で繋がる能力」' },
   { id: 24, name: 'アルジャーノン', date: '2023.02.06', tracks: '1首', cover: '/covers/24.jpg', quote: '「ステップを踏む、迷路の中で君を探す」' },
   { id: 25, name: '451', date: '2023.03.08', tracks: '1首', cover: '/covers/25.jpg', quote: '「華氏451度、本が燃える夜の温度」' },
   { id: 26, name: '幻燈 (10曲選集)', date: '2023.04.05', tracks: '10首', cover: '/covers/26.jpg', quote: '「画集と巡る、新章への扉」' },
-  { id: 27, name: '幻燈 (全25曲画集盤)', date: '2023.04.05', tracks: '25首', cover: '/covers/27.jpg', quote: '「聴く画集。絵画と音楽が織利なす壮大な世界」' },
+  { id: 27, name: '幻燈 (全25曲画集盤)', date: '2023.04.05', tracks: '25首', cover: '/covers/27.jpg', quote: '「聴く画集。絵画と音楽が織りなす壮大な世界」' },
   { id: 28, name: '斜陽', date: '2023.05.08', tracks: '1首', cover: '/covers/28.jpg', quote: '「斜陽の光が、二人の影を長く伸ばす」' },
   { id: 29, name: '月光浴', date: '2023.10.13', tracks: '1首', cover: '/covers/29.jpg', quote: '「静かに降り注ぐ月光を浴びて」' },
   { id: 30, name: '晴る', date: '2024.01.05', tracks: '1首', cover: '/covers/30.jpg', quote: '「晴れ渡る空、新しい季節の始まり」' },
@@ -68,19 +68,38 @@ const watercolorShapes = [
 export default function Home() {
   const [activeSlot, setActiveSlot] = useState(0);
   const [albumOffsets, setAlbumOffsets] = useState([0, 1, 2, 3, 4, 5]);
+  // 记录上一次的专辑数据，用于双图重叠淡隐淡入（Crossfade）
+  const [prevAlbums, setPrevAlbums] = useState([allAlbums[0], allAlbums[1], allAlbums[2], allAlbums[3], allAlbums[4], allAlbums[5]]);
+  const [fadingSlot, setFadingSlot] = useState(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setActiveSlot((prevSlot) => {
         const nextSlot = (prevSlot + 1) % slots.length;
+        
+        // 触发淡隐过渡效果
+        setFadingSlot(nextSlot);
+
         setAlbumOffsets((prevOffsets) => {
           const newOffsets = [...prevOffsets];
+          // 记录旧专辑
+          setPrevAlbums((p) => {
+            const copy = [...p];
+            copy[nextSlot] = allAlbums[prevOffsets[nextSlot]];
+            return copy;
+          });
           newOffsets[nextSlot] = (newOffsets[nextSlot] + slots.length) % allAlbums.length;
           return newOffsets;
         });
+
+        // 过渡动画结束后重置状态
+        setTimeout(() => {
+          setFadingSlot(null);
+        }, 1000);
+
         return nextSlot;
       });
-    }, 4200);
+    }, 4500);
     return () => clearInterval(timer);
   }, []);
 
@@ -98,7 +117,9 @@ export default function Home() {
           {slots.map((slot, slotIdx) => {
             const albumIndex = albumOffsets[slotIdx];
             const album = allAlbums[albumIndex];
+            const prevAlbum = prevAlbums[slotIdx];
             const isActive = slotIdx === activeSlot;
+            const isFading = slotIdx === fadingSlot;
             const shapeClip = watercolorShapes[slotIdx % watercolorShapes.length];
 
             return (
@@ -106,31 +127,33 @@ export default function Home() {
                 key={slotIdx}
                 onClick={() => setActiveSlot(slotIdx)}
                 onMouseEnter={() => setActiveSlot(slotIdx)}
-                className={`relative group rounded-md overflow-hidden transition-all duration-700 ease-out transform cursor-pointer ${
+                className={`relative group rounded-md overflow-hidden transition-all duration-1000 ease-in-out transform cursor-pointer ${
                   isActive
                     ? 'scale-105 rotate-0 z-30 translate-y-0 shadow-2xl ring-1 ring-sky-300/50'
                     : `${slot.rotate} ${slot.offset} opacity-85 hover:opacity-100 hover:rotate-0 hover:scale-105 hover:z-20 shadow-md`
                 }`}
               >
+                {/* 封面图片：采用双图重叠 Crossfade 实现丝滑淡入淡出 */}
                 <div className="w-full aspect-square bg-zinc-100 relative overflow-hidden">
+                  {/* 下层旧图（渐隐） */}
+                  {prevAlbum && (
+                    <img
+                      src={prevAlbum.cover}
+                      alt={prevAlbum.name}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                  )}
+                  {/* 上层新图（渐现） */}
                   <img
-                    key={album.id}
                     src={album.cover}
                     alt={album.name}
-                    className="w-full h-full object-cover transition-opacity duration-700 ease-in-out"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      if (e.target.nextSibling) {
-                        e.target.nextSibling.style.display = 'flex';
-                      }
-                    }}
+                    className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
+                      isFading ? 'opacity-0' : 'opacity-100'
+                    }`}
                   />
-                  <div className="hidden w-full h-full flex-col items-center justify-center p-2 text-center bg-zinc-100">
-                    <span className="text-zinc-400 text-[10px] tracking-widest">{album.date}</span>
-                    <span className="text-zinc-800 font-medium text-xs mt-1">{album.name}</span>
-                  </div>
                 </div>
 
+                {/* 水蓝色遮罩 */}
                 <div
                   className={`absolute inset-0 flex flex-col justify-center items-center p-2 sm:p-3 text-center transition-all duration-700 ease-out ${
                     isActive
