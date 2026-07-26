@@ -1,12 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // 开启静态导出（如果使用的是纯静态 Pages 部署）
-  output: 'export',
-  // 开启尾部斜杠自动兼容，防止 Cloudflare Pages 报 404
+  // 开启尾部斜杠，强制 Next.js 导出 /magazine/index.html 而不是 /magazine.html
+  // 这能完美解决 Cloudflare Pages 找不到二级页面路由抛出 404 的问题
   trailingSlash: true,
   images: {
-    unoptimized: true, // 静态导出下需禁用默认图片优化
+    unoptimized: true,
   },
 };
 
