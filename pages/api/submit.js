@@ -36,21 +36,26 @@ export default function handler(req, res) {
         created_at: new Date().toISOString()
       };
       dbData.magazines.push(newMagazine);
-    } else {
-      const newFeedback = {
-        id: 'item-' + Date.now(),
-        type: 'feedback',
-        feedbackContent: data.description || data.feedbackContent || '',
-        author: '社区访客',
-        created_at: new Date().toISOString()
-      };
-      dbData.annotations.push(newFeedback);
-    }
+   export const runtime = 'edge';
 
-    fs.writeFileSync(filePath, JSON.stringify(dbData, null, 2), 'utf-8');
-    return res.status(200).json({ success: true });
+export default async function handler(req) {
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    // 模拟成功接收数据，不写本地文件
+    return new Response(JSON.stringify({ success: true, message: 'Demo submit success' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: err.message });
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 }
