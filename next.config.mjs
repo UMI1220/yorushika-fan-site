@@ -1,10 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /* 在这里保留你原来的配置，例如： */
   reactStrictMode: true,
-  trailingSlash: true, // 确保静态路由解析正常
-  images: {
-    unoptimized: true,
-  },
 };
 
-module.exports = nextConfig;
+export default nextConfig;
