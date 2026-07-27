@@ -1,3 +1,5 @@
+export const runtime = 'edge';
+
 import { createClient } from '@supabase/supabase-js';
 
 // 安全获取 Supabase 客户端
@@ -10,18 +12,19 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-export default async function handler(req, res) {
-  // 处理 Node.js API Route / Next.js 标准格式
-  const method = req.method;
-
+export default async function handler(req) {
   try {
     const supabase = getSupabase();
+    const url = new URL(req.url);
 
-    // GET 请求：获取戳记/弹幕
-    if (method === 'GET') {
-      const magazineId = req.query?.magazineId || new URL(req.url, 'http://localhost').searchParams.get('magazineId');
+    // 1. GET 请求：获取戳记/弹幕
+    if (req.method === 'GET') {
+      const magazineId = url.searchParams.get('magazineId');
       if (!magazineId) {
-        return res ? res.status(400).json({ error: '缺少 magazineId 参数' }) : new Response(JSON.stringify({ error: '缺少 magazineId 参数' }), { status: 400 });
+        return new Response(JSON.stringify({ error: '缺少 magazineId 参数' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
       }
 
       const { data: annotations, error } = await supabase
@@ -32,30 +35,31 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error('Fetch annotations error:', error);
-        return res ? res.status(500).json({ error: error.message }) : new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: error.message }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
       }
 
-      const responseData = { success: true, annotations: annotations || [] };
-      return res ? res.status(200).json(responseData) : new Response(JSON.stringify(responseData), { status: 200 });
+      return new Response(JSON.stringify({ success: true, annotations: annotations || [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
-    // POST 请求：提交新戳记
-    if (method === 'POST') {
-      let body = req.body;
-      if (typeof body === 'string') {
-        body = JSON.parse(body);
-      } else if (!body && req.json) {
-        body = await req.json();
-      }
-
+    // 2. POST 请求：提交新戳记
+    if (req.method === 'POST') {
+      const body = await req.json();
       const { magazineId, pageIndex, content, nickname, x_percent, y_percent } = body || {};
 
       if (!magazineId || !content) {
-        const errJson = { error: '缺少必填字段 (magazineId 或 content)' };
-        return res ? res.status(400).json(errJson) : new Response(JSON.stringify(errJson), { status: 400 });
+        return new Response(JSON.stringify({ error: '缺少必填字段 (magazineId 或 content)' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        });
       }
 
-      // 显式做类型安全转换
+      // 显式格式化字段
       const payload = {
         magazine_id: String(magazineId),
         page_index: Number(pageIndex) || 0,
@@ -65,7 +69,7 @@ export default async function handler(req, res) {
         y_percent: parseFloat(y_percent) || 50,
       };
 
-      // 注意：.select() 非常关键，能确保数据顺利写入并返回插入记录
+      // 注意：.select() 非常关键，确保在 Edge Runtime 下正确触发并返回插入结果
       const { data, error } = await supabase
         .from('annotations')
         .insert([payload])
@@ -73,18 +77,30 @@ export default async function handler(req, res) {
 
       if (error) {
         console.error('Insert stamp error detail:', error);
-        const errJson = { success: false, error: error.message, details: error.details };
-        return res ? res.status(500).json(errJson) : new Response(JSON.stringify(errJson), { status: 500 });
+        return new Response(
+          JSON.stringify({ success: false, error: error.message, details: error.details }),
+          {
+            status: 500,
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          }
+        );
       }
 
-      const successJson = { success: true, data };
-      return res ? res.status(200).json(successJson) : new Response(JSON.stringify(successJson), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
     }
 
-    return res ? res.status(405).json({ error: 'Method Not Allowed' }) : new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405 });
+    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
   } catch (err) {
     console.error('Server Stamp Internal Error:', err);
-    const catchJson = { success: false, error: err.message || 'Server Error' };
-    return res ? res.status(500).json(catchJson) : new Response(JSON.stringify(catchJson), { status: 500 });
+    return new Response(JSON.stringify({ success: false, error: err.message || 'Server Error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
   }
 }
