@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { createClient } from '@supabase/supabase-js';
 import formidable from 'formidable';
 import fs from 'fs';

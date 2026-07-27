@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 // 匹配你的真实文件路径：lib/supabase.js
 import { supabase } from '../../lib/supabase';
 

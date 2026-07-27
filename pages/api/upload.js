@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import formidable from 'formidable';
 import fs from 'fs';
 // 匹配你的真实文件路径：lib/supabase.js
