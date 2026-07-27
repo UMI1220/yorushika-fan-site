@@ -22,10 +22,9 @@ export default async function handler(req) {
     }
 
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-
-    // 在 Edge Runtime 中将 File 转为 ArrayBuffer 直接上传至 Supabase Storage
+    const fileName = `${Date.now()}-${Math.random().toString(36.substring(2, 7))}.${fileExt}`;
     const arrayBuffer = await file.arrayBuffer();
+
     const { data, error } = await supabase.storage
       .from(bucket)
       .upload(fileName, arrayBuffer, {
@@ -37,7 +36,6 @@ export default async function handler(req) {
       return new Response(JSON.stringify({ error: error.message }), { status: 500 });
     }
 
-    // 获取公开访问 URL
     const { data: publicUrlData } = supabase.storage
       .from(bucket)
       .getPublicUrl(fileName);
