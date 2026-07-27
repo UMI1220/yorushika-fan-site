@@ -39,11 +39,11 @@ export default function IntroOverlay({ onComplete }) {
         fading ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* 💡 关键修复：
-        原视频是 9:16 竖屏，中间只有约 35% 区域是白底 Logo 画面，上下全是原生的黑色填充带。
-        将 scale 调整为 scale-[2.7]，精准将原视频上下黑边彻底裁切在 overflow-hidden 之外！
+      {/* 💡 优化重点：
+        1. 容器高度收窄为 h-44 sm:h-52，给 Logo 留出舒适的呼吸感 space
+        2. scale 降至 1.8，精准干掉原视频黑边，同时 Logo 尺寸恰到好处！
       */}
-      <div className="relative w-80 h-52 sm:w-96 sm:h-64 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
+      <div className="relative w-72 h-44 sm:w-80 sm:h-52 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
         <video
           ref={videoRef}
           src="/intro.mp4"
@@ -51,7 +51,7 @@ export default function IntroOverlay({ onComplete }) {
           muted
           playsInline
           onEnded={handleFinish}
-          className="w-full h-full object-cover scale-[2.7] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
+          className="w-full h-full object-cover scale-[1.8] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
         />
       </div>
 
