@@ -67,30 +67,20 @@ export default function AdminDashboard() {
       ]);
       if (userErr) throw userErr;
 
-      // 2. 更新申请表状态（兼容 generated_pass / generated_password 字段名）
+      // 2. 精准更新 admin_applications 表（只更新存在字段，避免 400 报错）
       const { error: appErr } = await supabase
         .from('admin_applications')
         .update({
           status: 'approved',
           generated_pass: randomPassword,
-          generated_password: randomPassword,
         })
         .eq('id', app.id);
 
-      if (appErr) {
-        // 如果字段叫 generated_pass
-        await supabase
-          .from('admin_applications')
-          .update({
-            status: 'approved',
-            generated_pass: randomPassword,
-          })
-          .eq('id', app.id);
-      }
+      if (appErr) throw appErr;
 
-      // 3. 调用后台 API 自动电邮至申请者
+      // 3. 调用后台 API 自动电邮至申请者（静默容错处理）
       try {
-        await fetch('/api/send-admin-mail', {
+        const mailRes = await fetch('/api/send-admin-mail', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -100,11 +90,15 @@ export default function AdminDashboard() {
             groupNo: '1090225142',
           }),
         });
+
+        if (!mailRes.ok) {
+          console.warn(`[邮件发送提示] 状态码 ${mailRes.status}，已静默跳过发信。`);
+        }
       } catch (mailErr) {
-        console.warn('邮件发送接口可配置选填:', mailErr);
+        console.warn('[邮件发送提示] 邮件接口未就绪或环境变量未配置，已跳过发信:', mailErr);
       }
 
-      alert(`✅ 已成功批准 ${app.nickname || app.email} 的申请！\n生成的6位管理密码为：${randomPassword}\n相关通知及管理群号(1090225142)已记录并触发电邮。`);
+      alert(`✅ 已成功批准 ${app.nickname || app.email} 的申请！\n生成的6位管理密码为：${randomPassword}\n相关通知及管理群号(1090225142)已记录。`);
       loadAllAdminData();
     } catch (err) {
       alert(`批准失败: ${err.message}`);
