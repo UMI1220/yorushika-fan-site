@@ -59,7 +59,7 @@ export default function AdminDashboard() {
       // 1. 写入 admin_users 表
       const { error: userErr } = await supabase.from('admin_users').insert([
         {
-          nickname: app.nickname,
+          nickname: app.nickname || app.applicant_name || 'Admin',
           email: app.email,
           password: randomPassword,
           role: 'admin',
@@ -67,11 +67,26 @@ export default function AdminDashboard() {
       ]);
       if (userErr) throw userErr;
 
-      // 2. 更新申请表状态
-      await supabase
+      // 2. 更新申请表状态（兼容 generated_pass / generated_password 字段名）
+      const { error: appErr } = await supabase
         .from('admin_applications')
-        .update({ status: 'approved', generated_pass: randomPassword })
+        .update({
+          status: 'approved',
+          generated_pass: randomPassword,
+          generated_password: randomPassword,
+        })
         .eq('id', app.id);
+
+      if (appErr) {
+        // 如果字段叫 generated_pass
+        await supabase
+          .from('admin_applications')
+          .update({
+            status: 'approved',
+            generated_pass: randomPassword,
+          })
+          .eq('id', app.id);
+      }
 
       // 3. 调用后台 API 自动电邮至申请者
       try {
@@ -80,7 +95,7 @@ export default function AdminDashboard() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email: app.email,
-            nickname: app.nickname,
+            nickname: app.nickname || app.applicant_name,
             password: randomPassword,
             groupNo: '1090225142',
           }),
@@ -89,7 +104,7 @@ export default function AdminDashboard() {
         console.warn('邮件发送接口可配置选填:', mailErr);
       }
 
-      alert(`✅ 已成功批准 ${app.nickname} 的申请！\n生成的6位管理密码为：${randomPassword}\n相关通知及管理群号(1090225142)已记录并触发电邮。`);
+      alert(`✅ 已成功批准 ${app.nickname || app.email} 的申请！\n生成的6位管理密码为：${randomPassword}\n相关通知及管理群号(1090225142)已记录并触发电邮。`);
       loadAllAdminData();
     } catch (err) {
       alert(`批准失败: ${err.message}`);
@@ -263,7 +278,7 @@ export default function AdminDashboard() {
                       <div key={app.id} className="bg-white p-5 rounded-2xl border border-zinc-100 shadow-sm space-y-3">
                         <div className="flex justify-between items-center text-xs">
                           <div>
-                            <span className="font-serif font-medium text-zinc-800 text-sm">{app.nickname}</span>
+                            <span className="font-serif font-medium text-zinc-800 text-sm">{app.nickname || app.applicant_name}</span>
                             <span className="ml-2 text-zinc-400 font-mono">({app.email})</span>
                           </div>
                           <span className={`text-[10px] px-2 py-0.5 rounded ${
