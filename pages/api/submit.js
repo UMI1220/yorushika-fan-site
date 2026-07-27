@@ -16,9 +16,8 @@ export default async function handler(req) {
   }
 
   try {
-    // 直接解析前端传过来的 JSON 数据
     const body = await req.json();
-    const { title, issue_number, cover_url, zip_url } = body;
+    const { title, author, description, cover_url, zip_url, category, issue_number } = body;
 
     if (!title || !zip_url) {
       return new Response(JSON.stringify({ error: '缺少必要的标题或文件链接' }), {
@@ -27,15 +26,18 @@ export default async function handler(req) {
       });
     }
 
-    // 写入 Supabase magazines 表
+    // 完整写入 Supabase magazines 表的字段
     const { data, error } = await supabase
       .from('magazines')
       .insert([
         {
           title,
-          issue_number: issue_number || 'Vol.1',
+          author: author || 'Yorushika Fan Club',
+          description: description || '',
           cover_url: cover_url || '',
           zip_url,
+          category: category || 'echo',
+          issue_number: issue_number || 'Vol.1',
         },
       ])
       .select();

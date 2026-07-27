@@ -15,7 +15,8 @@ export default async function handler(req) {
   try {
     const formData = await req.formData();
     const file = formData.get('file');
-    const bucket = formData.get('bucket') || 'gallery';
+    // ✅ 修复：默认存储桶统一为 magazines
+    const bucket = formData.get('bucket') || 'magazines';
 
     if (!file) {
       return new Response(JSON.stringify({ error: '未找到上传的文件' }), { status: 400 });
@@ -40,14 +41,15 @@ export default async function handler(req) {
       .from(bucket)
       .getPublicUrl(fileName);
 
-    return new Response(JSON.stringify({ url: publicUrlData.publicUrl }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({
+        success: true,
+        url: publicUrlData.publicUrl,
+        path: fileName,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(JSON.stringify({ error: err.message }), { status: 500 });
   }
 }

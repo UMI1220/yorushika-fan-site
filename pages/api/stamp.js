@@ -1,13 +1,18 @@
 export const runtime = 'edge';
-import { supabase } from '../../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
-export default async function handler(req, res) {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
+
+export default async function handler(req) {
   if (req.method === 'POST') {
-    // 发布新戳记评论
     try {
-      const { magazineId, pageIndex, content, nickname } = req.body;
+      const body = await req.json();
+      const { magazineId, pageIndex, content, nickname } = body;
       if (!magazineId || !content) {
-        return res.status(400).json({ error: '缺少必填字段' });
+        return new Response(JSON.stringify({ error: '缺少必填字段' }), { status: 400 });
       }
 
       const { data, error } = await supabase.from('annotations').insert([
@@ -20,30 +25,30 @@ export default async function handler(req, res) {
       ]);
 
       if (error) throw error;
-      return res.status(200).json({ success: true, message: '戳记留下成功！' });
+      return new Response(JSON.stringify({ success: true, message: '戳记留下成功！' }), { status: 200 });
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      return new Response(JSON.stringify({ error: err.message }), { status: 500 });
     }
   } else if (req.method === 'GET') {
-    // 获取指定刊物的戳记评论
     try {
-      const { magazineId } = req.query;
+      const { searchParams } = new URL(req.url);
+      const magazineId = searchParams.get('magazineId');
+
       if (!magazineId) {
-        return res.status(400).json({ error: '缺少 magazineId' });
+        return new Response(JSON.stringify({ error: '缺少 magazineId' }), { status: 400 });
       }
 
       const { data: annotations, error } = await supabase
         .from('annotations')
         .select('*')
-        .eq('magazine_id', magazineId)
-        .order('created_at', { ascending: true });
+        .eq('magazine_id', magazineId);
 
       if (error) throw error;
-      return res.status(200).json({ annotations: annotations || [] });
+      return new Response(JSON.stringify({ success: true, annotations }), { status: 200 });
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      return new Response(JSON.stringify({ error: err.message }), { status: 500 });
     }
   } else {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 }
