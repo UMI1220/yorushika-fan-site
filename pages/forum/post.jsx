@@ -10,8 +10,9 @@ export default function PostCreatePage() {
 
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
-  const [category, setCategory] = useState('CHAT');
+  const [category, setCategory] = useState('ABSTRACT'); // 默认给到抽象二创
   const [content, setContent] = useState('');
+  const [videoUrl, setVideoUrl] = useState(''); // 🆕 视频链接状态
   
   // 图片相关状态
   const [imageFile, setImageFile] = useState(null);
@@ -38,7 +39,7 @@ export default function PostCreatePage() {
     e.preventDefault();
 
     if (!title.trim() || !content.trim()) {
-      setErrorMsg('请填写帖子标题与正文内容');
+      setErrorMsg('请填写帖子标题与主要内容');
       return;
     }
 
@@ -48,45 +49,42 @@ export default function PostCreatePage() {
 
       let imageUrl = null;
 
-      // 1. 如果选择了图片，上传到独立的 'forum' 存储桶
+      // 如果选了图片，先上传到 Supabase storage (gallery 或 forum 存储桶)
       if (imageFile) {
-        const ext = imageFile.name.split('.').pop();
-        const fileName = `forum-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${ext}`;
+        const fileExt = imageFile.name.split('.').pop();
+        const fileName = `forum-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
 
-        const { error: uploadErr } = await supabase.storage
-          .from('forum') // 使用独立的 forum 存储桶
-          .upload(fileName, imageFile, { upsert: true });
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from('gallery')
+          .upload(fileName, imageFile);
 
-        if (uploadErr) throw new Error(`图片上传失败: ${uploadErr.message}`);
+        if (uploadErr) throw uploadErr;
 
-        const { data: publicData } = supabase.storage
-          .from('forum')
+        const { data: publicUrlData } = supabase.storage
+          .from('gallery')
           .getPublicUrl(fileName);
 
-        imageUrl = publicData.publicUrl;
+        imageUrl = publicUrlData.publicUrl;
       }
 
-      // 2. 写入 public.forum_posts 数据表
-      const { error } = await supabase
-        .from('forum_posts')
-        .insert([
-          {
-            title: title.trim(),
-            author: author.trim() || '匿名鹿友',
-            category,
-            content: content.trim(),
-            image_url: imageUrl,
-            likes: 0,
-          },
-        ]);
+      // 写入数据库
+      const { data, error } = await supabase.from('forum_posts').insert([
+        {
+          title,
+          author: author.trim() || '匿名鹿友',
+          category,
+          content,
+          image_url: imageUrl,
+          video_url: videoUrl.trim() || null, // 🆕 保存视频链接
+        },
+      ]).select();
 
       if (error) throw error;
 
-      // 跳转回论坛列表
       router.push('/forum');
     } catch (err) {
-      console.error('发布失败:', err);
-      setErrorMsg(err.message || '发布失败，请稍后再试');
+      console.error('发帖失败:', err);
+      setErrorMsg(err.message || '发布失败，请稍后重试');
     } finally {
       setSubmitting(false);
     }
@@ -95,162 +93,131 @@ export default function PostCreatePage() {
   return (
     <Layout>
       <Head>
-        <title>发起讨论 | FORUM | ヨルシカ FanSite</title>
+        <title>发起讨论 | Yorushika FanSite</title>
       </Head>
 
-      <div className="min-h-screen bg-[#fafbfc] pt-24 pb-20 px-4 sm:px-8">
-        <div className="max-w-2xl mx-auto">
-          
-          <div className="mb-8 flex items-center justify-between">
-            <Link
-              href="/forum"
-              className="text-xs tracking-widest text-[#88abac] hover:underline flex items-center gap-1"
-            >
-              ← 返回社区列表
-            </Link>
-            <span className="text-xs text-zinc-400 font-serif">CREATE POST</span>
-          </div>
+      <div className="max-w-2xl mx-auto px-4 py-8">
+        
+        {/* 返回按钮 */}
+        <Link href="/forum" className="text-xs font-mono text-zinc-400 hover:text-zinc-700 transition">
+          ← 返回讨论区
+        </Link>
 
-          <div className="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-zinc-100">
-            <div className="text-center mb-8">
-              <h1 className="text-2xl sm:text-3xl font-serif text-zinc-800 tracking-widest mb-2">
-                发起讨论 / NEW POST
-              </h1>
-              <p className="text-xs font-serif italic text-zinc-400 tracking-wider">
-                「言葉の隙間に、あの夏の記憶を」
-              </p>
+        <div className="bg-white rounded-2xl border border-zinc-100 p-6 sm:p-8 shadow-sm mt-4">
+          <h1 className="text-xl font-serif text-zinc-900 mb-6">发起讨论话题</h1>
+
+          {errorMsg && (
+            <div className="mb-6 p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-600 font-mono">
+              {errorMsg}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* 标题 */}
+            <div>
+              <label className="block text-xs font-mono text-zinc-500 mb-1">话题标题 *</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例：如何看待《花に亡霊》MV里的隐喻？ / 搞点抽象二创..."
+                required
+                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+              />
             </div>
 
-            {errorMsg && (
-              <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-xs tracking-wide">
-                ⚠️ {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* 标题 */}
+            {/* 昵称与分类 */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-serif tracking-widest text-zinc-700 mb-2">
-                  讨论主题 / 标题 *
-                </label>
+                <label className="block text-xs font-mono text-zinc-500 mb-1">你的昵称</label>
                 <input
                   type="text"
-                  placeholder="如：关于《花に風》MV 中的意象思考"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] transition-colors"
-                  required
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                  placeholder="默认：匿名鹿友"
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
                 />
               </div>
 
-              {/* 昵称与分类 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-serif tracking-widest text-zinc-700 mb-2">
-                    昵称 / 签名
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="默认：匿名鹿友"
-                    value={author}
-                    onChange={(e) => setAuthor(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] transition-colors"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-mono text-zinc-500 mb-1">选择分类</label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] bg-white"
+                >
+                  <option value="ABSTRACT">🤪 抽象/二创</option>
+                  <option value="ANALYSIS">📖 歌词/剧情考察</option>
+                  <option value="MUSIC">🎵 音乐/编曲讨论</option>
+                  <option value="PILGRIMAGE">🗺️ 巡礼/圣地交流</option>
+                  <option value="CHAT">☕ 闲聊茶室</option>
+                </select>
+              </div>
+            </div>
 
-                <div>
-                  <label className="block text-xs font-serif tracking-widest text-zinc-700 mb-2">
-                    话题分类
-                  </label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] transition-colors bg-white"
+            {/* 🆕 视频分享链接 */}
+            <div>
+              <label className="block text-xs font-mono text-zinc-500 mb-1">
+                🎬 分享视频链接 (可选，支持 B站 / YouTube / MP4 直链)
+              </label>
+              <input
+                type="url"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder="https://www.bilibili.com/video/BV... 或 https://youtu.be/..."
+                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs font-mono focus:outline-none focus:border-[#88abac]"
+              />
+              <p className="text-[10px] text-zinc-400 mt-1 font-mono">粘贴 Bilibili 视频链接即可直接在帖子内内嵌播放器</p>
+            </div>
+
+            {/* 正文 */}
+            <div>
+              <label className="block text-xs font-mono text-zinc-500 mb-1">讨论正文 *</label>
+              <textarea
+                rows={6}
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="分享你的见解、想法或二创梗..."
+                required
+                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+              />
+            </div>
+
+            {/* 上传图片 */}
+            <div>
+              <label className="block text-xs font-mono text-zinc-500 mb-1">附加配图 (可选)</label>
+              {imagePreview ? (
+                <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-zinc-200">
+                  <img src={imagePreview} alt="预览" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => { setImageFile(null); setImagePreview(''); }}
+                    className="absolute top-1 right-1 bg-zinc-900/80 text-white w-5 h-5 rounded-full text-xs flex items-center justify-center"
                   >
-                    <option value="CHAT">☕ 闲聊交流 / CHAT</option>
-                    <option value="ANALYSIS">📖 歌词考察 / ANALYSIS</option>
-                    <option value="MUSIC">🎵 音乐讨论 / MUSIC</option>
-                    <option value="PILGRIMAGE">📷 圣地巡礼 / PILGRIMAGE</option>
-                  </select>
+                    ✕
+                  </button>
                 </div>
-              </div>
-
-              {/* 正文 */}
-              <div>
-                <label className="block text-xs font-serif tracking-widest text-zinc-700 mb-2">
-                  正文内容 *
-                </label>
-                <textarea
-                  rows={6}
-                  placeholder="留下你想表达的感悟、推论或疑问..."
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] transition-colors resize-none leading-relaxed"
-                  required
+              ) : (
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="block w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-mono file:bg-zinc-100 file:text-zinc-700 hover:file:bg-zinc-200 cursor-pointer"
                 />
-              </div>
+              )}
+            </div>
 
-              {/* 配图上传 (可选) */}
-              <div>
-                <label className="block text-xs font-serif tracking-widest text-zinc-700 mb-2">
-                  插入配图 (可选)
-                </label>
-                
-                <div className="border border-dashed border-zinc-200 rounded-xl p-4 text-center hover:border-[#88abac] transition-colors">
-                  {imagePreview ? (
-                    <div className="space-y-3">
-                      <img
-                        src={imagePreview}
-                        alt="预览"
-                        className="max-h-48 mx-auto rounded-lg object-contain"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setImageFile(null);
-                          setImagePreview('');
-                        }}
-                        className="text-xs text-rose-500 hover:underline"
-                      >
-                        移除配图
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleFileChange}
-                        className="hidden"
-                        id="forum-file-input"
-                      />
-                      <label
-                        htmlFor="forum-file-input"
-                        className="cursor-pointer inline-block px-4 py-2 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 rounded-lg text-xs tracking-wider border border-zinc-200 transition-colors"
-                      >
-                        📷 选择上传一张照片
-                      </label>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 提交 */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className={`w-full py-3.5 rounded-xl text-white text-xs tracking-widest transition-all font-medium ${
-                  submitting
-                    ? 'bg-zinc-300 cursor-not-allowed'
-                    : 'bg-[#88abac] hover:bg-[#789b9c] shadow-sm hover:shadow-md'
-                }`}
-              >
-                {submitting ? '讨论发布中...' : '发布话题 / SUBMIT'}
-              </button>
-            </form>
-          </div>
-
+            {/* 提交按钮 */}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full py-3 bg-[#88abac] hover:bg-[#789b9c] text-white text-xs font-mono rounded-xl shadow-sm disabled:opacity-50 transition"
+            >
+              {submitting ? '发布中...' : '发布话题 🚀'}
+            </button>
+          </form>
         </div>
+
       </div>
     </Layout>
   );

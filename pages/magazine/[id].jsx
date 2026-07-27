@@ -18,14 +18,14 @@ export default function MagazineDetail() {
   
   // 戳记与留言状态
   const [stamps, setStamps] = useState([]);
-  const [activeCoords, setActiveCoords] = useState(null);
+  const [activeCoords, setActiveCoords] = useState(null); // { x, y } 相对百分比
   const [nickname, setNickname] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const readerAreaRef = useRef(null);
 
-  // 1. 获取期刊详情与获取戳记列表
+  // 1. 获取期刊详情与已有戳记
   useEffect(() => {
     if (!id) return;
 
@@ -40,7 +40,6 @@ export default function MagazineDetail() {
 
         if (currentMag) {
           setMagazine(currentMag);
-          // 拿到数据后开始下载解压 ZIP
           loadAndUnzip(currentMag.zip_url || currentMag.pdf_url);
         } else {
           setLoading(false);
@@ -55,7 +54,7 @@ export default function MagazineDetail() {
     fetchStamps();
   }, [id]);
 
-  // 拉取戳记
+  // 拉取戳记列表
   async function fetchStamps() {
     if (!id) return;
     try {
@@ -71,10 +70,9 @@ export default function MagazineDetail() {
     }
   }
 
-  // 2. 解压 ZIP 并提取所有图片
+  // 2. 解压 ZIP 并提取图片
   async function loadAndUnzip(fileUrl) {
     if (!fileUrl) {
-      console.error('未找到 ZIP 资源链接');
       setLoading(false);
       return;
     }
@@ -116,7 +114,7 @@ export default function MagazineDetail() {
     }
   }
 
-  // 点击页面画幅，精准定位盖章位置
+  // 点击画幅，精准定位盖章位置并弹出浮层
   const handlePageClick = (e) => {
     if (!readerAreaRef.current) return;
     const rect = readerAreaRef.current.getBoundingClientRect();
@@ -148,7 +146,7 @@ export default function MagazineDetail() {
       if (res.ok) {
         setContent('');
         setActiveCoords(null);
-        fetchStamps(); // 刷新戳记
+        fetchStamps();
       } else {
         alert('戳记发送失败，请重试');
       }
@@ -189,7 +187,7 @@ export default function MagazineDetail() {
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-8">
         
-        {/* 1. 顶部刊物信息 */}
+        {/* 顶部刊物标题与返回 */}
         <div className="mb-6 flex items-center justify-between border-b border-zinc-100 pb-4">
           <div>
             <Link href="/magazine" className="text-xs font-mono text-zinc-400 hover:text-zinc-700 transition">
@@ -202,7 +200,7 @@ export default function MagazineDetail() {
           </div>
         </div>
 
-        {/* 2. 上置翻页控制栏（在图片正上方） */}
+        {/* 顶置翻页控制栏 */}
         {pageImages.length > 0 && !decompressing && (
           <div className="mb-6 flex items-center justify-between bg-zinc-50 px-6 py-3 rounded-2xl border border-zinc-200/80 shadow-sm">
             <button
@@ -225,7 +223,7 @@ export default function MagazineDetail() {
           </div>
         )}
 
-        {/* 3. 画幅阅读区 & 戳记系统 */}
+        {/* 阅读器与浮动戳记区域 */}
         {decompressing ? (
           <div className="text-center py-24 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
             <p className="text-xs font-mono text-zinc-400 animate-pulse">
@@ -237,9 +235,9 @@ export default function MagazineDetail() {
             <p className="text-xs font-mono text-zinc-400">未在压缩包内识别到 JPG / PNG 图片</p>
           </div>
         ) : (
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center relative">
             
-            {/* 图像显示区域，点击可插入戳记 */}
+            {/* 图像容器，支持点选盖章 */}
             <div 
               ref={readerAreaRef}
               onClick={handlePageClick}
@@ -251,7 +249,7 @@ export default function MagazineDetail() {
                 className="w-full h-auto object-contain block"
               />
 
-              {/* 渲染当前页面已有戳记 */}
+              {/* 渲染已有戳记 */}
               {currentPageStamps.map((stamp, idx) => {
                 const posX = stamp.x_percent || stamp.x || 50;
                 const posY = stamp.y_percent || stamp.y || 50;
@@ -262,12 +260,11 @@ export default function MagazineDetail() {
                     className="absolute -translate-x-1/2 -translate-y-1/2 group z-20"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {/* 戳记图标 */}
-                    <div className="w-6 h-6 rounded-full bg-[#a5c9ca]/80 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[10px] text-white font-mono animate-bounce">
+                    <div className="w-6 h-6 rounded-full bg-[#a5c9ca]/80 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[10px] text-white font-mono animate-bounce cursor-pointer">
                       🌸
                     </div>
-                    {/* 悬浮展示留言 */}
-                    <div className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 hidden group-hover:block w-48 p-2.5 bg-zinc-900/90 text-white rounded-lg text-xs shadow-xl z-30 pointer-events-none">
+                    {/* 悬浮提示框 */}
+                    <div className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 hidden group-hover:block w-48 p-2.5 bg-zinc-900/95 text-white rounded-lg text-xs shadow-xl z-30 pointer-events-none">
                       <p className="font-semibold text-[11px] text-[#a5c9ca]">{stamp.nickname || stamp.author || '粉丝'}</p>
                       <p className="text-[11px] text-zinc-200 mt-0.5">{stamp.content}</p>
                     </div>
@@ -275,66 +272,82 @@ export default function MagazineDetail() {
                 );
               })}
 
-              {/* 点击图片产生的未提交戳记提示点 */}
+              {/* 激活盖章时的精准原点指示 */}
               {activeCoords && (
                 <div
                   style={{ left: `${activeCoords.x}%`, top: `${activeCoords.y}%` }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-rose-500/80 border-2 border-white shadow-lg flex items-center justify-center text-xs text-white z-30 animate-pulse"
+                  className="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-rose-500/80 border-2 border-white shadow-lg flex items-center justify-center text-xs text-white z-30 animate-pulse pointer-events-none"
                 >
                   ✍️
                 </div>
               )}
             </div>
 
-            {/* 点击画幅弹出盖章留言框 */}
+            {/* 🌟 核心改进：在点击位置即时弹出浮动输入框 🌟 */}
             {activeCoords && (
-              <div className="mt-6 w-full max-w-3xl bg-zinc-50 border border-zinc-200 rounded-2xl p-4 shadow-sm">
+              <div 
+                style={{
+                  left: `${Math.min(Math.max(Number(activeCoords.x), 15), 85)}%`,
+                  top: `${Math.min(Math.max(Number(activeCoords.y), 15), 80)}%`
+                }}
+                className="absolute -translate-x-1/2 -translate-y-1/2 z-40 w-72 bg-white/95 backdrop-blur-md border border-zinc-200/90 rounded-2xl p-4 shadow-2xl transition-all animate-in fade-in zoom-in-95 duration-200"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <form onSubmit={handleStampSubmit}>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-mono text-zinc-500">
-                      在第 {currentPage} 页坐标 ({activeCoords.x}%, {activeCoords.y}%) 留下戳记：
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-mono text-[#a5c9ca] font-semibold flex items-center gap-1">
+                      <span>🌸</span> 留下画幅戳记
                     </span>
                     <button
                       type="button"
                       onClick={() => setActiveCoords(null)}
-                      className="text-xs font-mono text-zinc-400 hover:text-zinc-700"
+                      className="text-xs text-zinc-400 hover:text-zinc-700 transition"
                     >
-                      ✕ 取消
+                      ✕
                     </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  
+                  <div className="space-y-2 mb-3">
                     <input
                       type="text"
-                      placeholder="你的昵称 (可选)"
+                      placeholder="昵称 (可选)"
                       value={nickname}
                       onChange={(e) => setNickname(e.target.value)}
-                      className="px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca]"
+                      className="w-full px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca]"
                     />
-                    <input
-                      type="text"
-                      placeholder="写下对这一页的感受/弹幕..."
+                    <textarea
+                      rows="2"
+                      placeholder="写下对这一帧的感想/弹幕..."
                       value={content}
                       onChange={(e) => setContent(e.target.value)}
                       required
-                      className="sm:col-span-2 px-3 py-2 bg-white border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca]"
+                      autoFocus
+                      className="w-full px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca] resize-none"
                     />
                   </div>
-                  <div className="flex justify-end">
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveCoords(null)}
+                      className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-xs font-mono rounded-lg transition"
+                    >
+                      取消
+                    </button>
                     <button
                       type="submit"
                       disabled={submitting}
-                      className="px-5 py-2 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white text-xs font-mono rounded-lg shadow-sm disabled:opacity-50 transition"
+                      className="px-4 py-1 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white text-xs font-mono rounded-lg shadow-sm disabled:opacity-50 transition"
                     >
-                      {submitting ? '提交中...' : '发射戳记 🌸'}
+                      {submitting ? '发送中' : '发射 🚀'}
                     </button>
                   </div>
                 </form>
               </div>
             )}
 
-            {/* 底部提示 */}
             <p className="mt-4 text-[11px] font-mono text-zinc-400">
-              💡 提示：在图片上直接点击，即可在对应位置留下你的专属弹幕戳记
+              💡 提示：点击画幅任意角落即可原地弹出留言框盖章
             </p>
 
           </div>

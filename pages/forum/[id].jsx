@@ -46,17 +46,17 @@ export default function PostDetailPage() {
         .eq('post_id', id)
         .order('created_at', { ascending: true });
 
-      if (commentErr) throw commentErr;
-      setComments(commentData || []);
-
+      if (!commentErr) {
+        setComments(commentData || []);
+      }
     } catch (err) {
-      console.error('读取帖子详情失败:', err);
+      console.error('获取详情失败:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 盖印章/点赞
+  // 点赞盖章
   const handleLike = async () => {
     if (!post || liked) return;
     try {
@@ -71,18 +71,17 @@ export default function PostDetailPage() {
         setLiked(true);
       }
     } catch (err) {
-      console.error('点赞失败:', err);
+      console.error('盖章点赞失败:', err);
     }
   };
 
-  // 提交评论
+  // 提交回复
   const handleCommentSubmit = async (e) => {
     e.preventDefault();
     if (!commentContent.trim()) return;
 
     try {
       setSubmittingComment(true);
-
       const { data, error } = await supabase
         .from('forum_comments')
         .insert([
@@ -96,21 +95,71 @@ export default function PostDetailPage() {
 
       if (error) throw error;
 
-      setComments([...comments, data[0]]);
       setCommentContent('');
+      setComments([...comments, data[0]]);
     } catch (err) {
-      console.error('评论提交失败:', err);
-      alert('评论发表失败，请稍后重试');
+      console.error('回复失败:', err);
     } finally {
       setSubmittingComment(false);
     }
   };
 
+  // 🎥 智能视频嵌入渲染器
+  const renderVideoPlayer = (url) => {
+    if (!url) return null;
+
+    // 1. Bilibili (匹配 BV号 或 bilibili.com)
+    const bvidMatch = url.match(/BV[a-zA-Z0-9]+/i);
+    if (bvidMatch) {
+      const bvid = bvidMatch[0];
+      return (
+        <div className="my-6 aspect-video w-full rounded-2xl overflow-hidden shadow-lg border border-zinc-200">
+          <iframe
+            src={`//player.bilibili.com/player.html?bvid=${bvid}&page=1&high_quality=1&danmaku=0`}
+            scrolling="no"
+            border="0"
+            frameBorder="no"
+            framespacing="0"
+            allowFullScreen={true}
+            className="w-full h-full"
+          ></iframe>
+        </div>
+      );
+    }
+
+    // 2. YouTube
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    if (ytMatch && ytMatch[1]) {
+      return (
+        <div className="my-6 aspect-video w-full rounded-2xl overflow-hidden shadow-lg border border-zinc-200">
+          <iframe
+            src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+            title="YouTube video player"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full"
+          ></iframe>
+        </div>
+      );
+    }
+
+    // 3. 通用 MP4 直链
+    return (
+      <div className="my-6 rounded-2xl overflow-hidden shadow-lg bg-black">
+        <video controls className="w-full max-h-[500px]">
+          <source src={url} />
+          您的浏览器不支持 Video 播放器。
+        </video>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <Layout>
-        <div className="min-h-screen bg-[#fafbfc] pt-32 text-center text-zinc-400 font-serif tracking-widest">
-          加载帖子中...
+        <div className="py-24 text-center font-mono text-xs text-zinc-400 animate-pulse">
+          Loading post details...
         </div>
       </Layout>
     );
@@ -119,10 +168,10 @@ export default function PostDetailPage() {
   if (!post) {
     return (
       <Layout>
-        <div className="min-h-screen bg-[#fafbfc] pt-32 text-center text-zinc-500 font-serif space-y-4">
-          <p>未找到相关讨论帖子</p>
-          <Link href="/forum" className="text-xs text-[#88abac] underline">
-            ← 返回社区列表
+        <div className="py-24 text-center">
+          <p className="text-xs font-mono text-zinc-400 mb-4">该话题不存在或已被删除</p>
+          <Link href="/forum" className="text-xs font-mono text-[#88abac] underline">
+            ← 返回讨论区
           </Link>
         </div>
       </Layout>
@@ -132,128 +181,107 @@ export default function PostDetailPage() {
   return (
     <Layout>
       <Head>
-        <title>{post.title} | FORUM | ヨルシカ FanSite</title>
+        <title>{post.title} | 鹿友论坛</title>
       </Head>
 
-      <div className="min-h-screen bg-[#fafbfc] pt-24 pb-20 px-4 sm:px-8">
-        <div className="max-w-3xl mx-auto space-y-8">
-          
-          <div className="flex items-center justify-between">
-            <Link
-              href="/forum"
-              className="text-xs tracking-widest text-[#88abac] hover:underline flex items-center gap-1"
+      <div className="max-w-3xl mx-auto px-4 py-8">
+        <Link href="/forum" className="text-xs font-mono text-zinc-400 hover:text-zinc-700 transition">
+          ← 返回讨论区
+        </Link>
+
+        {/* 帖子正文卡片 */}
+        <div className="bg-white rounded-2xl border border-zinc-100 p-6 sm:p-8 shadow-sm my-4">
+          <h1 className="text-xl sm:text-2xl font-serif text-zinc-900 mb-4 leading-snug">{post.title}</h1>
+
+          <div className="flex items-center gap-3 text-xs font-mono text-zinc-400 mb-6 border-b border-zinc-100 pb-4">
+            <span className="text-zinc-700">👤 {post.author || '匿名鹿友'}</span>
+            <span>•</span>
+            <span>{new Date(post.created_at).toLocaleString()}</span>
+          </div>
+
+          {/* 正文 */}
+          <div className="text-sm text-zinc-700 leading-relaxed font-sans whitespace-pre-wrap mb-6">
+            {post.content}
+          </div>
+
+          {/* 🎬 视频播放组件 */}
+          {post.video_url && renderVideoPlayer(post.video_url)}
+
+          {/* 配图 */}
+          {post.image_url && (
+            <div className="my-6 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm">
+              <img src={post.image_url} alt="帖子配图" className="w-full h-auto block" />
+            </div>
+          )}
+
+          {/* 点赞印章按钮 */}
+          <div className="mt-8 flex justify-center">
+            <button
+              onClick={handleLike}
+              disabled={liked}
+              className={`px-6 py-2.5 rounded-full font-mono text-xs flex items-center gap-2 border transition-all ${
+                liked
+                  ? 'bg-rose-50 text-rose-500 border-rose-200 cursor-default'
+                  : 'bg-white text-zinc-700 border-zinc-200 hover:bg-zinc-50 shadow-sm'
+              }`}
             >
-              ← 返回社区列表
-            </Link>
-            <span className="text-xs text-zinc-400 font-serif">DISCUSSION</span>
+              <span>{liked ? '💖 已盖章印记' : '🌸 留下盖章'}</span>
+              <span className="font-bold">({post.likes || 0})</span>
+            </button>
           </div>
-
-          <div className="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-zinc-100 space-y-6">
-            <div className="border-b border-zinc-100 pb-4">
-              <span className="inline-block text-[11px] text-[#88abac] border border-[#88abac]/30 px-2.5 py-0.5 rounded mb-3">
-                {post.category}
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-serif text-zinc-800 tracking-wide leading-snug">
-                {post.title}
-              </h1>
-              <div className="flex items-center gap-3 text-xs text-zinc-400 mt-4">
-                <span className="font-serif text-zinc-600">👤 {post.author}</span>
-                <span>•</span>
-                <span>{new Date(post.created_at).toLocaleString()}</span>
-              </div>
-            </div>
-
-            {/* 帖子正文 */}
-            <div className="text-sm sm:text-base text-zinc-700 leading-relaxed font-sans whitespace-pre-wrap py-2">
-              {post.content}
-            </div>
-
-            {/* 帖子配图 (如果有) */}
-            {post.image_url && (
-              <div className="my-6 rounded-2xl overflow-hidden border border-zinc-100 bg-zinc-50/50 p-2 flex items-center justify-center">
-                <img
-                  src={post.image_url}
-                  alt="帖子配图"
-                  className="max-h-[500px] w-auto object-contain rounded-xl shadow-sm"
-                />
-              </div>
-            )}
-
-            {/* 点赞/盖印章按钮 */}
-            <div className="pt-4 border-t border-zinc-50 flex justify-center">
-              <button
-                onClick={handleLike}
-                disabled={liked}
-                className={`px-6 py-2.5 rounded-full text-xs tracking-widest transition-all flex items-center gap-2 ${
-                  liked
-                    ? 'bg-rose-50 text-rose-500 border border-rose-200'
-                    : 'bg-zinc-50 hover:bg-rose-50 text-zinc-600 hover:text-rose-500 border border-zinc-200'
-                }`}
-              >
-                <span>{liked ? '💙 已盖印章' : '💙 盖印章'}</span>
-                <span className="font-mono">({post.likes || 0})</span>
-              </button>
-            </div>
-          </div>
-
-          {/* 回复评论区 */}
-          <div className="bg-white rounded-2xl p-6 sm:p-8 shadow-sm border border-zinc-100 space-y-6">
-            <h3 className="font-serif text-zinc-800 text-lg tracking-widest border-b border-zinc-100 pb-3">
-              同好回复 ({comments.length})
-            </h3>
-
-            {comments.length === 0 ? (
-              <p className="text-xs text-zinc-400 font-serif italic py-4 text-center">
-                暂无回复，快来留下你的第一条感悟吧~
-              </p>
-            ) : (
-              <div className="space-y-4 divide-y divide-zinc-50">
-                {comments.map((comment, index) => (
-                  <div key={comment.id} className="pt-4 first:pt-0 space-y-1.5">
-                    <div className="flex justify-between items-center text-xs text-zinc-400">
-                      <span className="font-serif text-zinc-700">
-                        #{index + 1} 楼 • {comment.author}
-                      </span>
-                      <span>{new Date(comment.created_at).toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-xs sm:text-sm text-zinc-600 leading-relaxed pl-2 border-l-2 border-[#88abac]/30">
-                      {comment.content}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* 发表回复 */}
-            <form onSubmit={handleCommentSubmit} className="pt-6 border-t border-zinc-100 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="昵称 (可选，默认：匿名鹿友)"
-                  value={commentAuthor}
-                  onChange={(e) => setCommentAuthor(e.target.value)}
-                  className="px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
-                />
-              </div>
-              <textarea
-                rows={3}
-                placeholder="写下你的想法或回复..."
-                value={commentContent}
-                onChange={(e) => setCommentContent(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
-                required
-              />
-              <button
-                type="submit"
-                disabled={submittingComment}
-                className="px-6 py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs tracking-widest transition-all"
-              >
-                {submittingComment ? '发表中...' : '发表回复'}
-              </button>
-            </form>
-          </div>
-
         </div>
+
+        {/* 评论回复区 */}
+        <div className="bg-white rounded-2xl border border-zinc-100 p-6 sm:p-8 shadow-sm">
+          <h2 className="text-sm font-serif text-zinc-800 mb-6 font-medium">
+            💬 讨论回复 ({comments.length})
+          </h2>
+
+          {comments.length === 0 ? (
+            <p className="text-xs font-mono text-zinc-400 text-center py-6">暂无回复，快来发表你的见解～</p>
+          ) : (
+            <div className="space-y-4 mb-8">
+              {comments.map((c, idx) => (
+                <div key={c.id || idx} className="p-4 bg-zinc-50/60 rounded-xl border border-zinc-100">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 mb-2">
+                    <span className="text-zinc-700 font-medium">👤 {c.author}</span>
+                    <span>{new Date(c.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-xs text-zinc-700 leading-relaxed">{c.content}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 发表回复 */}
+          <form onSubmit={handleCommentSubmit} className="pt-6 border-t border-zinc-100 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <input
+                type="text"
+                placeholder="昵称 (可选，默认：匿名鹿友)"
+                value={commentAuthor}
+                onChange={(e) => setCommentAuthor(e.target.value)}
+                className="px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+              />
+            </div>
+            <textarea
+              rows={3}
+              placeholder="写下你的想法或回复..."
+              value={commentContent}
+              onChange={(e) => setCommentContent(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+              required
+            />
+            <button
+              type="submit"
+              disabled={submittingComment}
+              className="px-6 py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-mono shadow-sm disabled:opacity-50 transition"
+            >
+              {submittingComment ? '发表中...' : '发表回复'}
+            </button>
+          </form>
+        </div>
+
       </div>
     </Layout>
   );
