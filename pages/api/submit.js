@@ -22,15 +22,19 @@ export default async function handler(req) {
   try {
     const supabase = getSupabase();
     const body = await req.json();
-    const { title, author, description, category, issue_number, cover_url, zip_url } = body;
+    const { title, author, description, issue_number, cover_url, cover_img, zip_url, pdf_url } = body;
 
-    if (!title || !zip_url) {
+    const finalCover = cover_url || cover_img || '';
+    const finalZip = zip_url || pdf_url || '';
+
+    if (!title || !finalZip) {
       return new Response(JSON.stringify({ error: '缺少必要的标题或文件链接' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
+    // 同时给字段名打补丁，兼顾 cover_url / cover_img 和 zip_url / pdf_url
     const { data, error } = await supabase
       .from('magazines')
       .insert([
@@ -38,10 +42,11 @@ export default async function handler(req) {
           title,
           author: author || 'Yorushika Fan Club',
           description: description || '',
-          category: category || 'echo',
           issue_number: issue_number || 'Vol.1',
-          cover_url: cover_url || '',
-          zip_url,
+          cover_url: finalCover,
+          cover_img: finalCover,
+          zip_url: finalZip,
+          pdf_url: finalZip,
         },
       ])
       .select();

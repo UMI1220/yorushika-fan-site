@@ -15,317 +15,174 @@ export default function MagazineDetail() {
   // 解压提取出的图片 Blob URL 列表
   const [pageImages, setPageImages] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
-  
-  // 戳记与留言弹窗状态
-  const [stamps, setStamps] = useState([]);
-  const [activeCoords, setActiveCoords] = useState(null);
-  const [nickname, setNickname] = useState('');
-  const [content, setContent] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
-  const readerAreaRef = useRef(null);
-
-  // 1. 获取期刊详情与已有戳记
+  // 1. 获取期刊详情
   useEffect(() => {
     if (!id) return;
 
     async function fetchMagazineDetail() {
       try {
         setLoading(true);
-        
-        // 请求数据列表接口
         const res = await fetch('/api/list');
         const data = await res.json();
         
-        // ✅ 兼容直接返回数组 [...] 或返回对象 { magazines: [...] } 的结构
+        // 兼容数组或 { magazines: [...] } 结构
         const list = Array.isArray(data) ? data : (data.magazines || []);
-        const currentMag = list.find((item) => String(item.id) === String(id));
+        const currentMag = list.find((m) => String(m.id) === String(id));
 
-        if (!currentMag) {
-          alert('未找到该刊物信息');
-          router.push('/magazine');
-          return;
+        if (currentMag) {
+          setMagazine(currentMag);
+          // 拿到数据后开始下载解压 ZIP
+          loadAndUnzip(currentMag.zip_url || currentMag.pdf_url);
+        } else {
+          setLoading(false);
         }
-
-        setMagazine(currentMag);
-
-        // 获取当前刊物的戳记弹幕
-        try {
-          const stampRes = await fetch(`/api/stamp?magazineId=${id}`);
-          const stampData = await stampRes.json();
-          if (stampData.success && stampData.annotations) {
-            setStamps(stampData.annotations);
-          }
-        } catch (sErr) {
-          console.error('获取戳记失败:', sErr);
-        }
-
       } catch (err) {
         console.error('获取期刊详情失败:', err);
-      } finally {
         setLoading(false);
       }
     }
 
     fetchMagazineDetail();
-  }, [id, router]);
+  }, [id]);
 
-  // 2. 解压 ZIP 刊物资源并提取所有图片
-  useEffect(() => {
-    if (!magazine || !magazine.zip_url) return;
-
-    async function decompressZip() {
-      try {
-        setDecompressing(true);
-        
-        // 下载 ZIP 文件
-        const response = await fetch(magazine.zip_url);
-        if (!response.ok) throw new Error('刊物 ZIP 资源下载失败');
-        
-        const zipBlob = await response.blob();
-        const zip = await JSZip.loadAsync(zipBlob);
-
-        const imageFiles = [];
-
-        // 递归遍历 ZIP 包内的文件，按名字排序并提取图片
-        const entries = Object.keys(zip.files).sort();
-
-        for (const filename of entries) {
-          const file = zip.files[filename];
-          // 排除文件夹，只处理 jpg/png/jpeg/webp
-          if (!file.dir && /\.(jpg|jpeg|png|webp)$/i.test(filename)) {
-            const blob = await file.async('blob');
-            const imageUrl = URL.createObjectURL(blob);
-            imageFiles.push(imageUrl);
-          }
-        }
-
-        if (imageFiles.length === 0) {
-          alert('压缩包内未识别到 JPG/PNG 图片页面');
-        } else {
-          setPageImages(imageFiles);
-        }
-      } catch (err) {
-        console.error('ZIP 解压失败:', err);
-        alert(`刊物资源加载失败: ${err.message}`);
-      } finally {
-        setDecompressing(false);
-      }
+  // 2. 解压 ZIP 并提取所有图片
+  async function loadAndUnzip(fileUrl) {
+    if (!fileUrl) {
+      console.error('未找到 ZIP 资源链接');
+      setLoading(false);
+      return;
     }
-
-    decompressZip();
-  }, [magazine]);
-
-  // 点击页面放置“戳记”
-  const handlePageClick = (e) => {
-    if (!readerAreaRef.current) return;
-    const rect = readerAreaRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-    setActiveCoords({ x: x.toFixed(2), y: y.toFixed(2) });
-  };
-
-  // 提交戳记评论
-  const handleStampSubmit = async (e) => {
-    e.preventDefault();
-    if (!content.trim() || !activeCoords) return;
 
     try {
-      setSubmitting(true);
-      const res = await fetch('/api/stamp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          magazineId: id,
-          pageIndex: currentPage - 1,
-          content: content.trim(),
-          nickname: nickname.trim() || '匿名鹿友',
-          x_percent: parseFloat(activeCoords.x),
-          y_percent: parseFloat(activeCoords.y),
-        }),
+      setDecompressing(true);
+      const response = await fetch(fileUrl);
+      const blob = await response.blob();
+      
+      const zip = new JSZip();
+      const zipContent = await zip.loadAsync(blob);
+
+      const imagePromises = [];
+      const imageNames = [];
+
+      // 遍历 ZIP 中所有文件，识别常见图片格式（支持嵌套子文件夹）
+      zipContent.forEach((relativePath, file) => {
+        if (!file.dir && /\.(jpg|jpeg|png|webp|gif)$/i.test(relativePath)) {
+          imageNames.push(relativePath);
+        }
       });
 
-      const resData = await res.json();
-      if (!res.ok) throw new Error(resData.error || '戳记发表失败');
+      // 自然排序文件名 (如 page1.jpg, page2.jpg, page10.jpg)
+      imageNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
 
-      // 本地刷新显示
-      setStamps((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          page_index: currentPage - 1,
-          content: content.trim(),
-          nickname: nickname.trim() || '匿名鹿友',
-          x_percent: parseFloat(activeCoords.x),
-          y_percent: parseFloat(activeCoords.y),
-        },
-      ]);
+      for (const name of imageNames) {
+        const file = zipContent.file(name);
+        if (file) {
+          const p = file.async('blob').then((imgBlob) => URL.createObjectURL(imgBlob));
+          imagePromises.push(p);
+        }
+      }
 
-      setContent('');
-      setActiveCoords(null);
+      const imageUrls = await Promise.all(imagePromises);
+      setPageImages(imageUrls);
     } catch (err) {
-      alert(err.message);
+      console.error('解压刊物失败:', err);
     } finally {
-      setSubmitting(false);
+      setDecompressing(false);
+      setLoading(false);
     }
-  };
+  }
 
   if (loading) {
     return (
       <Layout>
-        <div className="max-w-4xl mx-auto px-6 py-20 text-center font-mono text-xs text-zinc-400 animate-pulse">
+        <div className="text-center py-32 font-mono text-xs text-zinc-400 animate-pulse">
           Loading magazine reader...
         </div>
       </Layout>
     );
   }
 
-  if (!magazine) return null;
-
-  // 当前页对应的戳记
-  const currentPageStamps = stamps.filter((s) => Number(s.page_index) === currentPage - 1);
+  if (!magazine) {
+    return (
+      <Layout>
+        <div className="text-center py-32">
+          <p className="text-xs font-mono text-zinc-400 mb-4">未找到该刊物信息</p>
+          <Link href="/magazine" className="text-xs font-mono text-[#a5c9ca] underline">
+            ← 返回刊物列表
+          </Link>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
+      <div className="max-w-5xl mx-auto px-4 py-8">
         
-        {/* 返回按钮与头部标题 */}
-        <div className="mb-6 flex items-center justify-between">
-          <Link
-            href="/magazine"
-            className="text-xs font-mono text-zinc-500 hover:text-zinc-800 transition"
-          >
-            ← 返回刊物列表
-          </Link>
-          <span className="text-xs font-mono text-[#a5c9ca]">
-            {magazine.issue_number || 'Vol.1'} · {magazine.author || 'Yorushika Fan Club'}
-          </span>
-        </div>
-
-        <div className="text-center mb-8">
-          <h1 className="text-xl sm:text-2xl font-serif text-zinc-900 mb-2">
-            {magazine.title}
-          </h1>
-          <p className="text-xs text-zinc-500 font-light max-w-xl mx-auto">
-            {magazine.description}
-          </p>
-        </div>
-
-        {/* 翻页控制器 */}
-        {pageImages.length > 0 && (
-          <div className="flex items-center justify-center space-x-6 mb-6 font-mono text-xs text-zinc-600">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 rounded-lg disabled:opacity-30 transition"
-            >
-              上一页
-            </button>
-            <span>
-              {currentPage} / {pageImages.length}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(pageImages.length, p + 1))}
-              disabled={currentPage === pageImages.length}
-              className="px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 rounded-lg disabled:opacity-30 transition"
-            >
-              下一页
-            </button>
+        {/* 返回按钮 & 标题 */}
+        <div className="mb-8 flex items-center justify-between border-b border-zinc-100 pb-4">
+          <div>
+            <Link href="/magazine" className="text-xs font-mono text-zinc-400 hover:text-zinc-700 transition">
+              ← 返回列表
+            </Link>
+            <h1 className="text-xl font-serif text-zinc-900 mt-2">{magazine.title}</h1>
+            <p className="text-xs font-mono text-zinc-400 mt-1">
+              By {magazine.author || 'Yorushika Fan Club'} · {magazine.issue_number || 'Vol.1'}
+            </p>
           </div>
-        )}
 
-        {/* 在线阅读与戳记交互核心区 */}
-        <div className="relative bg-zinc-900 rounded-2xl overflow-hidden shadow-2xl min-h-[500px] flex items-center justify-center">
-          {decompressing ? (
-            <div className="text-white font-mono text-xs animate-pulse">
-              正在解压并渲染刊物高清页面...
-            </div>
-          ) : pageImages.length > 0 ? (
-            <div
-              ref={readerAreaRef}
-              onClick={handlePageClick}
-              className="relative cursor-crosshair select-none inline-block max-w-full"
-            >
-              <img
-                src={pageImages[currentPage - 1]}
-                alt={`Page ${currentPage}`}
-                className="max-h-[85vh] w-auto object-contain mx-auto block"
-              />
-
-              {/* 渲染当前页已有戳记弹幕 */}
-              {currentPageStamps.map((stamp) => (
-                <div
-                  key={stamp.id}
-                  style={{
-                    left: `${stamp.x_percent || 50}%`,
-                    top: `${stamp.y_percent || 50}%`,
-                  }}
-                  className="absolute transform -translate-x-1/2 -translate-y-1/2 bg-black/75 backdrop-blur-md border border-white/20 text-white px-3 py-1.5 rounded-full text-xs pointer-events-none shadow-lg animate-fade-in"
-                >
-                  <span className="text-[#a5c9ca] font-mono mr-1">
-                    {stamp.nickname}:
-                  </span>
-                  {stamp.content}
-                </div>
-              ))}
-
-              {/* 点击创建新戳记弹窗 */}
-              {activeCoords && (
-                <div
-                  onClick={(e) => e.stopPropagation()}
-                  style={{
-                    left: `${activeCoords.x}%`,
-                    top: `${activeCoords.y}%`,
-                  }}
-                  className="absolute z-20 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-xl p-4 shadow-2xl border border-zinc-200 w-64 text-left"
-                >
-                  <h4 className="text-xs font-mono text-zinc-500 mb-2">
-                    在此留下印记评论
-                  </h4>
-                  <form onSubmit={handleStampSubmit}>
-                    <input
-                      type="text"
-                      placeholder="你的昵称 (可选)"
-                      value={nickname}
-                      onChange={(e) => setNickname(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 mb-2 text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca]"
-                    />
-                    <textarea
-                      rows="3"
-                      placeholder="写下对这一页的感受..."
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      className="w-full bg-zinc-50 border border-zinc-200 rounded-lg p-2 mb-2 text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca] resize-none"
-                      required
-                      autoFocus
-                    />
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        type="button"
-                        onClick={() => setActiveCoords(null)}
-                        className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 rounded-lg text-xs font-mono"
-                      >
-                        取消
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={submitting}
-                        className="px-3 py-1 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white rounded-lg text-xs font-mono disabled:opacity-50"
-                      >
-                        {submitting ? '发射中...' : '盖章'}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-zinc-500 font-mono text-xs">
-              无有效页面显示
+          {pageImages.length > 0 && (
+            <div className="text-xs font-mono text-zinc-500 bg-zinc-100 px-3 py-1.5 rounded-full">
+              {currentPage} / {pageImages.length} 页
             </div>
           )}
         </div>
+
+        {/* 阅读器主区域 */}
+        {decompressing ? (
+          <div className="text-center py-24 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-xs font-mono text-zinc-400 animate-pulse">
+              正在解压并加载画幅资源...
+            </p>
+          </div>
+        ) : pageImages.length === 0 ? (
+          <div className="text-center py-24 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-xs font-mono text-zinc-400">未在压缩包内识别到 JPG / PNG 图片</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            {/* 当前页面图片 */}
+            <div className="relative max-w-3xl w-full bg-white shadow-lg rounded-lg overflow-hidden border border-zinc-100">
+              <img
+                src={pageImages[currentPage - 1]}
+                alt={`Page ${currentPage}`}
+                className="w-full h-auto object-contain select-none"
+              />
+            </div>
+
+            {/* 翻页控制按钮 */}
+            <div className="mt-8 flex items-center space-x-6 font-mono text-xs">
+              <button
+                disabled={currentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="px-5 py-2 bg-zinc-900 text-white rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
+              >
+                上一页
+              </button>
+              <span className="text-zinc-400">
+                {currentPage} / {pageImages.length}
+              </span>
+              <button
+                disabled={currentPage >= pageImages.length}
+                onClick={() => setCurrentPage((p) => Math.min(pageImages.length, p + 1))}
+                className="px-5 py-2 bg-zinc-900 text-white rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
+              >
+                下一页
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
     </Layout>
