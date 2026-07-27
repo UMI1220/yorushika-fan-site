@@ -39,13 +39,11 @@ export default function IntroOverlay({ onComplete }) {
         fading ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* 🔑 关键修复：
-        1. 移除了导致底色变黑的 filter invert
-        2. 背景设定为与视频原背景完全一致的暖白纸质色 (#fdfbf7)
-        3. 使用 filter grayscale contrast-200 提升对比度，将蓝色 Line Art 变纯黑线稿
-        4. 使用 mix-blend-multiply（正片叠底）抹除视频背景边缘缝隙
+      {/* 💡 关键修复：
+        原视频是 9:16 竖屏，中间只有约 35% 区域是白底 Logo 画面，上下全是原生的黑色填充带。
+        将 scale 调整为 scale-[2.7]，精准将原视频上下黑边彻底裁切在 overflow-hidden 之外！
       */}
-      <div className="relative w-80 h-60 sm:w-96 sm:h-72 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
+      <div className="relative w-80 h-52 sm:w-96 sm:h-64 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
         <video
           ref={videoRef}
           src="/intro.mp4"
@@ -53,7 +51,7 @@ export default function IntroOverlay({ onComplete }) {
           muted
           playsInline
           onEnded={handleFinish}
-          className="w-full h-full object-cover scale-150 filter grayscale contrast-200 brightness-95 mix-blend-multiply"
+          className="w-full h-full object-cover scale-[2.7] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
         />
       </div>
 
