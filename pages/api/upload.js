@@ -1,62 +1,55 @@
 export const runtime = 'edge';
-import formidable from 'formidable';
-import fs from 'fs';
-// 匹配你的真实文件路径：lib/supabase.js
-import { supabase } from '../../lib/supabase';
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+import { createClient } from '@supabase/supabase-js';
 
-export default async function handler(req, res) {
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+);
+
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
   }
 
-  const form = formidable({ keepExtensions: true });
+  try {
+    const formData = await req.formData();
+    const file = formData.get('file');
+    const bucket = formData.get('bucket') || 'gallery';
 
-  form.parse(req, async (err, fields, files) => {
-    if (err) {
-      console.error('Formidable 解析错误:', err);
-      return res.status(500).json({ error: '文件解析失败' });
+    if (!file) {
+      return new Response(JSON.stringify({ error: '未找到上传的文件' }), { status: 400 });
     }
 
-    const rawFile = Array.isArray(files.file) ? files.file[0] : files.file;
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
 
-    if (!rawFile) {
-      return res.status(400).json({ error: '未接收到文件' });
+    // 在 Edge Runtime 中将 File 转为 ArrayBuffer 直接上传至 Supabase Storage
+    const arrayBuffer = await file.arrayBuffer();
+    const { data, error } = await supabase.storage
+      .from(bucket)
+      .upload(fileName, arrayBuffer, {
+        contentType: file.type,
+        upsert: true,
+      });
+
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), { status: 500 });
     }
 
-    try {
-      const fileBuffer = fs.readFileSync(rawFile.filepath);
-      const originalFilename = rawFile.originalFilename || 'upload-file';
-      const ext = originalFilename.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    // 获取公开访问 URL
+    const { data: publicUrlData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(fileName);
 
-      // 上传至 Supabase Storage 的 'magazines' 存储桶
-      const { data, error } = await supabase.storage
-        .from('magazines')
-        .upload(fileName, fileBuffer, {
-          contentType: rawFile.mimetype || 'application/octet-stream',
-          upsert: true,
-        });
-
-      if (error) {
-        console.error('Supabase Storage 上传失败:', error);
-        return res.status(500).json({ error: error.message });
-      }
-
-      // 获取公开访问链接
-      const { data: publicData } = supabase.storage
-        .from('magazines')
-        .getPublicUrl(fileName);
-
-      return res.status(200).json({ url: publicData.publicUrl });
-    } catch (uploadErr) {
-      console.error('上传服务器错误:', uploadErr);
-      return res.status(500).json({ error: uploadErr.message });
-    }
-  });
+    return new Response(JSON.stringify({ url: publicUrlData.publicUrl }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
 }
