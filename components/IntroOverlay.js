@@ -6,7 +6,7 @@ export default function IntroOverlay({ onComplete }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
-    // 检查本次访问 Session 是否已播放过开场动画
+    // 检查 Session 记录，本次访问仅播放一次
     const hasSeenIntro = sessionStorage.getItem('has_seen_intro');
     if (hasSeenIntro) {
       setVisible(false);
@@ -14,7 +14,7 @@ export default function IntroOverlay({ onComplete }) {
       return;
     }
 
-    // 自动播放兜底：防止视频加载异常导致一直卡住，3.8秒后自动淡出
+    // 自动播放超时兜底 (3.8 秒)
     const timer = setTimeout(() => {
       handleFinish();
     }, 3800);
@@ -28,19 +28,24 @@ export default function IntroOverlay({ onComplete }) {
     setTimeout(() => {
       setVisible(false);
       if (onComplete) onComplete();
-    }, 600); // 600ms 淡出过程
+    }, 600);
   };
 
   if (!visible) return null;
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex items-center justify-center bg-white transition-opacity duration-700 ease-out ${
+      className={`fixed inset-0 z-[9999] flex items-center justify-center bg-[#fdfbf7] transition-opacity duration-700 ease-out ${
         fading ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* 视频容器：通过 overflow-hidden 和 scale 裁剪外层黑色边框，同时应用 CSS 反色 filter */}
-      <div className="relative w-80 h-60 sm:w-96 sm:h-72 overflow-hidden flex items-center justify-center bg-white">
+      {/* 🔑 关键修复：
+        1. 移除了导致底色变黑的 filter invert
+        2. 背景设定为与视频原背景完全一致的暖白纸质色 (#fdfbf7)
+        3. 使用 filter grayscale contrast-200 提升对比度，将蓝色 Line Art 变纯黑线稿
+        4. 使用 mix-blend-multiply（正片叠底）抹除视频背景边缘缝隙
+      */}
+      <div className="relative w-80 h-60 sm:w-96 sm:h-72 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
         <video
           ref={videoRef}
           src="/intro.mp4"
@@ -48,11 +53,11 @@ export default function IntroOverlay({ onComplete }) {
           muted
           playsInline
           onEnded={handleFinish}
-          className="w-full h-full object-cover scale-150 filter invert grayscale contrast-150 mix-blend-multiply"
+          className="w-full h-full object-cover scale-150 filter grayscale contrast-200 brightness-95 mix-blend-multiply"
         />
       </div>
 
-      {/* 右上角跳过按钮 */}
+      {/* 右上角 SKIP 按钮 */}
       <button
         onClick={handleFinish}
         type="button"
