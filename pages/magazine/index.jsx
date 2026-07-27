@@ -6,14 +6,14 @@ export default function MagazineIndex() {
   const [magazines, setMagazines] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 从 /api/list 接口拉取 Supabase 数据
   useEffect(() => {
     async function fetchMagazines() {
       try {
+        setLoading(true);
         const res = await fetch('/api/list');
         const data = await res.json();
-        
-        // ✅ 兼容直接返回数组 [...] 或返回对象 { magazines: [...] } 的结构
+
+        // 兼容直接返回数组 [...] 或返回 { magazines: [...] } 的结构
         const list = Array.isArray(data) ? data : (data.magazines || []);
         setMagazines(list);
       } catch (err) {
@@ -35,85 +35,93 @@ export default function MagazineIndex() {
           <h1 className="text-2xl sm:text-3xl font-light text-zinc-900 tracking-[0.25em] font-serif mb-3">
             电子刊物与同人合集
           </h1>
-          <p className="text-xs sm:text-sm text-zinc-500 font-light tracking-widest font-mono">
-            ECHOES & FAN MAGAZINES
+          <p className="text-xs text-zinc-400 font-mono tracking-wider uppercase">
+            Yorushika Fan Magazines & Echo Publications
           </p>
-          <div className="w-8 h-[1px] bg-[#a5c9ca] mx-auto mt-6"></div>
+          
+          <div className="mt-6 flex justify-center">
+            <Link
+              href="/magazine/submit"
+              className="inline-flex items-center space-x-2 text-xs font-mono px-4 py-2 bg-zinc-900 text-white rounded-full hover:bg-zinc-800 transition"
+            >
+              <span>+ 投稿刊物</span>
+            </Link>
+          </div>
         </div>
 
-        {/* 刊物操作栏（例如发布入口） */}
-        <div className="flex justify-between items-center mb-10 pb-4 border-b border-zinc-100">
-          <span className="text-xs font-mono text-zinc-400">
-            全部刊物 ({magazines.length})
-          </span>
-          <Link
-            href="/magazine/submit"
-            className="px-4 py-2 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white rounded-lg text-xs font-mono transition shadow-sm"
-          >
-            + 投稿/发布刊物
-          </Link>
-        </div>
-
-        {/* 列表加载状态与展示 */}
+        {/* 加载状态 */}
         {loading ? (
           <div className="text-center py-20 font-mono text-xs text-zinc-400 animate-pulse">
-            Loading magazines...
+            Loading collection...
           </div>
         ) : magazines.length === 0 ? (
-          <div className="text-center py-20 font-mono text-xs text-zinc-400">
-            暂无发布的刊物，快去发布第一期吧！
+          /* 空列表提示 */
+          <div className="text-center py-20 bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-xs font-mono text-zinc-400 mb-4">暂无已发布的电子刊物</p>
+            <Link
+              href="/magazine/submit"
+              className="text-xs font-mono text-[#a5c9ca] hover:underline"
+            >
+              成为第一个投稿的鹿友 →
+            </Link>
           </div>
         ) : (
+          /* 刊物卡片网格 */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {magazines.map((mag) => (
-              <Link
-                key={mag.id}
-                href={`/magazine/${mag.id}`}
-                className="group block bg-white rounded-2xl border border-zinc-100 overflow-hidden shadow-sm hover:shadow-md transition duration-300 flex flex-col"
-              >
-                {/* 封面图容器 */}
-                <div className="aspect-[3/4] relative bg-zinc-100 overflow-hidden">
-                  {mag.cover_url ? (
-                    <img
-                      src={mag.cover_url}
-                      alt={mag.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-300 font-mono text-xs">
-                      NO COVER
-                    </div>
-                  )}
-                  
-                  {/* 角标分类 */}
-                  {mag.category && (
-                    <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-mono text-zinc-700 shadow-sm">
-                      {mag.category}
-                    </div>
-                  )}
-                </div>
+            {magazines.map((mag) => {
+              // 兼容多种封面与链接字段名
+              const coverImg = mag.cover_url || mag.cover_img || '/placeholder.png';
+              const magId = mag.id;
 
-                {/* 文本内容区 */}
-                <div className="p-6 flex-1 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest uppercase block mb-2">
-                      {mag.author ? `By ${mag.author}` : 'Yorushika Fan Club'} · {mag.issue_number || 'Vol.1'}
-                    </span>
-                    <h2 className="text-sm font-serif font-medium text-zinc-900 mb-2 group-hover:text-teal-700 transition">
-                      {mag.title}
-                    </h2>
-                    <p className="text-xs text-zinc-500 font-light leading-relaxed line-clamp-2">
-                      {mag.description || '暂无描述信息...'}
-                    </p>
+              return (
+                <Link
+                  key={magId}
+                  href={`/magazine/${magId}`}
+                  className="group block bg-white rounded-2xl overflow-hidden border border-zinc-100 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col"
+                >
+                  {/* 封面图区域 */}
+                  <div className="relative aspect-[3/4] bg-zinc-100 overflow-hidden">
+                    {coverImg ? (
+                      <img
+                        src={coverImg}
+                        alt={mag.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center font-mono text-xs text-zinc-400">
+                        NO COVER
+                      </div>
+                    )}
+                    
+                    {mag.category && (
+                      <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] font-mono text-zinc-700 shadow-sm">
+                        {mag.category}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="mt-6 pt-4 border-t border-zinc-100 flex items-center justify-between text-xs font-mono text-zinc-400">
-                    <span>在线阅读与弹幕戳记</span>
-                    <span className="text-[#a5c9ca] group-hover:translate-x-1 transition-transform">→</span>
+                  {/* 文本内容区域 */}
+                  <div className="p-6 flex-1 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest uppercase block mb-2">
+                        {mag.author ? `By ${mag.author}` : 'Yorushika Fan Club'} {mag.issue_number ? `· ${mag.issue_number}` : ''}
+                      </span>
+                      <h2 className="text-sm font-serif font-medium text-zinc-900 mb-2 group-hover:text-teal-700 transition line-clamp-1">
+                        {mag.title}
+                      </h2>
+                      <p className="text-xs text-zinc-500 font-light leading-relaxed line-clamp-2">
+                        {mag.description || '暂无描述信息'}
+                      </p>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-zinc-100 flex items-center justify-between text-xs font-mono text-zinc-400">
+                      <span>在线阅读与弹幕戳记</span>
+                      <span className="text-[#a5c9ca] group-hover:translate-x-1 transition-transform">→</span>
+                    </div>
                   </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </div>
         )}
 
