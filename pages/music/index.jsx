@@ -12,7 +12,7 @@ export default function MusicPage() {
   const [duration, setDuration] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // 🆕 新增：搜索与专辑筛选状态
+  // 搜索与专辑筛选状态
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAlbum, setSelectedAlbum] = useState('ALL');
 
@@ -44,10 +44,10 @@ export default function MusicPage() {
     }
   };
 
-  // 🆕 提取所有不重复的专辑列表
+  // 提取所有不重复的专辑列表
   const allAlbums = ['ALL', ...Array.from(new Set(tracks.map((t) => t.album).filter(Boolean)))];
 
-  // 🆕 根据搜索词和专辑过滤后的曲目列表
+  // 根据搜索词和专辑过滤后的曲目列表
   const filteredTracks = tracks.filter((track) => {
     const matchesSearch =
       (track.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -157,7 +157,7 @@ export default function MusicPage() {
           </Link>
         </div>
 
-        {/* 🆕 新增：搜索与专辑分类筛选栏 */}
+        {/* 搜索与专辑分类筛选栏 */}
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-8">
           {/* 实时搜索框 */}
           <div className="relative w-full md:w-72">
@@ -362,8 +362,8 @@ export default function MusicPage() {
 
                 <div className="max-h-60 overflow-y-auto text-xs leading-relaxed text-zinc-600 font-sans whitespace-pre-wrap pr-2">
                   {lyricTab === 'jp'
-                    ? currentTrack?.lyrics_jp || '暂无日文歌词'
-                    : currentTrack?.lyrics_cn || '暂无中文歌词'}
+                    ? (currentTrack?.lyric_jp || currentTrack?.lyrics_jp || currentTrack?.lyrics || '暂无日文歌词')
+                    : (currentTrack?.lyric_cn || currentTrack?.lyrics_cn || currentTrack?.lyrics_zh || currentTrack?.lyric_zh || '暂无中文歌词')}
                 </div>
               </div>
 
