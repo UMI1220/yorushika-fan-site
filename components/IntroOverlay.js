@@ -39,7 +39,7 @@ export default function IntroOverlay({ onComplete }) {
         fading ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* 💡 将 scale 调调整至 1.6，比例更加精致舒服 */}
+      {/* 💡 黄金缩放比 scale-[1.57]，精致且留白得当 */}
       <div className="relative w-72 h-44 sm:w-80 sm:h-52 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
         <video
           ref={videoRef}
@@ -48,7 +48,7 @@ export default function IntroOverlay({ onComplete }) {
           muted
           playsInline
           onEnded={handleFinish}
-          className="w-full h-full object-cover scale-[1.6] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
+          className="w-full h-full object-cover scale-[1.57] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
         />
       </div>
 
