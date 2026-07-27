@@ -22,7 +22,7 @@ export default async function handler(req) {
     }
 
     const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7))}.${fileExt}`;
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
     const arrayBuffer = await file.arrayBuffer();
 
     const { data, error } = await supabase.storage
