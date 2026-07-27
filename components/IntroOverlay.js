@@ -39,10 +39,7 @@ export default function IntroOverlay({ onComplete }) {
         fading ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
     >
-      {/* 💡 优化重点：
-        1. 容器高度收窄为 h-44 sm:h-52，给 Logo 留出舒适的呼吸感 space
-        2. scale 降至 1.8，精准干掉原视频黑边，同时 Logo 尺寸恰到好处！
-      */}
+      {/* 💡 将 scale 调调整至 1.6，比例更加精致舒服 */}
       <div className="relative w-72 h-44 sm:w-80 sm:h-52 overflow-hidden flex items-center justify-center bg-[#fdfbf7]">
         <video
           ref={videoRef}
@@ -51,7 +48,7 @@ export default function IntroOverlay({ onComplete }) {
           muted
           playsInline
           onEnded={handleFinish}
-          className="w-full h-full object-cover scale-[1.8] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
+          className="w-full h-full object-cover scale-[1.6] filter grayscale contrast-200 brightness-95 mix-blend-multiply"
         />
       </div>
 
