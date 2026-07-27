@@ -5,10 +5,11 @@ import IntroOverlay from './IntroOverlay';
 export default function Layout({ children }) {
   return (
     <>
-      <Head>
+    <Head>
         <title>ヨルシカ FanSite</title>
-        {/* 配置网站图标：指向 public/covers/0.jpg */}
-        <link rel="icon" href="/covers/0.jpg" />
+        {/* 加上 ?v=2 强刷浏览器缓存 */}
+        <link rel="icon" type="image/jpeg" href="/covers/0.jpg?v=2" />
+        <link rel="shortcut icon" href="/covers/0.jpg?v=2" />
       </Head>
 
       {/* 开场视频动画蒙层 */}
