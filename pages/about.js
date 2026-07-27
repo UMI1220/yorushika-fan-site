@@ -1,282 +1,434 @@
-import Head from 'next/head';
-import { useState } from 'react';
+import React, { useState } from 'react';
+import Link from 'next/link';
+import Layout from '../components/Layout';
+import { supabase } from '../lib/supabase';
 
 export default function About() {
-  const [showQR, setShowQR] = useState(false);
+  // 弹窗状态：null | 'feedback' | 'apply' | 'login'
+  const [activeModal, setActiveModal] = useState(null);
+
+  // 表单状态
+  const [feedbackType, setFeedbackType] = useState('report');
+  const [feedbackContent, setFeedbackContent] = useState('');
+  const [feedbackContact, setFeedbackContact] = useState('');
+
+  const [applyNickname, setApplyNickname] = useState('');
+  const [applyEmail, setApplyEmail] = useState('');
+  const [applyReason, setApplyReason] = useState('');
+
+  const [loginPass, setLoginPass] = useState('');
+
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState({ type: '', text: '' });
+
+  // 1. 提交反馈
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    if (!feedbackContent.trim()) return;
+
+    try {
+      setSubmitting(true);
+      const { error } = await supabase.from('feedback').insert([
+        {
+          type: feedbackType,
+          content: feedbackContent.trim(),
+          contact: feedbackContact.trim() || '匿名',
+        },
+      ]);
+      if (error) throw error;
+
+      setMsg({ type: 'success', text: '反馈已成功提交！感谢您对小站环境的维护。' });
+      setFeedbackContent('');
+      setFeedbackContact('');
+      setTimeout(() => {
+        setActiveModal(null);
+        setMsg({ type: '', text: '' });
+      }, 2000);
+    } catch (err) {
+      setMsg({ type: 'error', text: '提交失败，请稍后再试' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 2. 提交加入管理员申请
+  const handleApplySubmit = async (e) => {
+    e.preventDefault();
+    if (!applyNickname.trim() || !applyEmail.trim() || !applyReason.trim()) return;
+
+    try {
+      setSubmitting(true);
+      const { error } = await supabase.from('admin_applications').insert([
+        {
+          nickname: applyNickname.trim(),
+          email: applyEmail.trim(),
+          reason: applyReason.trim(),
+        },
+      ]);
+      if (error) throw error;
+
+      setMsg({
+        type: 'success',
+        text: '申请已提交！超级管理员审核通过后，初始密码与管理群号将通过电邮发送至您的邮箱。',
+      });
+      setApplyNickname('');
+      setApplyEmail('');
+      setApplyReason('');
+      setTimeout(() => {
+        setActiveModal(null);
+        setMsg({ type: '', text: '' });
+      }, 3000);
+    } catch (err) {
+      setMsg({ type: 'error', text: '提交申请失败，请稍后重试' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // 3. 管理员后台登录跳转
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    if (!loginPass.trim()) return;
+
+    try {
+      setSubmitting(true);
+      // 验证超级管理员或普通管理员密码
+      const { data, error } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('password', loginPass.trim())
+        .single();
+
+      if (error || !data) {
+        setMsg({ type: 'error', text: '密码错误，无法进入后台' });
+        return;
+      }
+
+      // 登录凭证写入 sessionStorage 储存
+      sessionStorage.setItem('admin_session', JSON.stringify(data));
+      window.location.href = '/admin';
+    } catch (err) {
+      setMsg({ type: 'error', text: '校验失败，请检查密码' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="site-wrapper">
-      <Head>
-        <title>关于本站 - Yorushika Fan Site</title>
-      </Head>
-
-      <div className="main-content">
-        <h1 className="page-title">ABOUT</h1>
+    <Layout>
+      <div className="max-w-4xl mx-auto px-6 py-12 sm:py-20">
         
-        {/* 1. 关于本站板块 */}
-        <div className="glass-card">
-          <h2>• 关于本站</h2>
-          <p>这是一个由夜鹿（Yorushika）同好自发建立的非官方粉丝网站。怀揣着对 n-buna 的吉他和曲风、suis 清澈嗓音的无限喜爱，以及藏在歌词里的雨、夏与文学故事的感动，我们搭建了这个属于所有“听众”的小小避难所。</p>
+        {/* 头部标题区域 */}
+        <div className="text-center mb-16">
+          <h1 className="text-2xl sm:text-3xl font-light text-zinc-900 tracking-[0.25em] font-serif mb-3">
+            关于本站与构想
+          </h1>
+          <p className="text-xs text-zinc-400 tracking-[0.3em] uppercase font-mono">
+            ABOUT YORUSHIKA FAN COLLECTION
+          </p>
+          <div className="w-12 h-[1px] bg-[#a5c9ca] mx-auto mt-6"></div>
         </div>
 
-        {/* 2. 本站技术栈 */}
-        <div className="glass-card">
-          <h2>• 本站技术栈</h2>
-          <ul className="tech-list">
-            <li><strong>前端架构</strong>：现代化高性能响应式设计</li>
-            <li><strong>托管与加速</strong>：Cloudflare Pages 全球边缘网络</li>
-            <li><strong>互动与通知</strong>：Twikoo 评论系统 + Resend API 邮件提醒</li>
-            <li><strong>专属域名</strong>：yorushika-fan.top</li>
-          </ul>
-        </div>
-
-        {/* 3. 传送门 */}
-        <div className="glass-card">
-          <h2>• 传送门</h2>
-          <div className="social-links">
-            <a href="https://github.com/UMI1229" target="_blank" rel="noreferrer">GitHub (UMI1229)</a>
-            <a href="https://space.bilibili.com/3546934872640225" target="_blank" rel="noreferrer">哔哩哔哩空间</a>
-            <a href="mailto:hongboyao18@gmail.com">联系邮箱</a>
-            <span className="uid-tag">UID: 3546934872640225</span>
+        {/* 板块 1：建站目的 */}
+        <section className="bg-white rounded-2xl p-8 sm:p-12 border border-zinc-100 shadow-sm mb-10 transition hover:shadow-md">
+          <div className="flex items-center space-x-3 mb-6">
+            <span className="w-2 h-2 rounded-full bg-[#a5c9ca]"></span>
+            <h2 className="text-sm font-semibold tracking-widest text-zinc-800 uppercase font-mono">
+              01. 建站目的 (PURPOSE)
+            </h2>
           </div>
-        </div>
+          <p className="text-sm text-zinc-600 leading-relaxed font-light mb-4">
+            这里是属于 <span className="text-zinc-900 font-medium">Yorushika（ヨルシカ）</span> 乐迷的私密而纯粹的角落。
+            n-buna 笔下构建的文学世界、suis 穿透人心的歌声，以及那些藏在夏草、雨滴、航海与盗作故事里的感动，需要有一个地方被安放。
+          </p>
+          <p className="text-sm text-zinc-600 leading-relaxed font-light">
+            我们希望搭建一个没有繁杂商业喧嚣、回归音乐与文字本身的聚集地——在这里可以翻阅电子刊物、欣赏同人插画、沉浸于云端音符，让同好们能够静静地分享对乐队的喜爱。
+          </p>
+        </section>
 
-        {/* 4. 支持站长（要饭模块 - 抽象图标 + 弹窗交互） */}
-        <div className="glass-card support-section">
-          <h2>• 支持站长</h2>
-          <p>如果这个小站曾触动了你，欢迎请站长喝杯冰可乐或咖啡！毕竟站长建站主要为了支付域名费用，纯靠“要饭”维持，你的每一分支持都是站点续命的动力：</p>
+        {/* 板块 2：技术框架 */}
+        <section className="bg-white rounded-2xl p-8 sm:p-12 border border-zinc-100 shadow-sm mb-10 transition hover:shadow-md">
+          <div className="flex items-center space-x-3 mb-6">
+            <span className="w-2 h-2 rounded-full bg-[#a5c9ca]"></span>
+            <h2 className="text-sm font-semibold tracking-widest text-zinc-800 uppercase font-mono">
+              02. 技术框架 (TECHNOLOGY)
+            </h2>
+          </div>
+          <p className="text-sm text-zinc-600 leading-relaxed font-light mb-6">
+            本站采用现代化的前端与轻量化后端架构，追求极致的加载速度与优雅的日系视觉体验：
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+            <div className="bg-[#fafafa] p-4 rounded-xl border border-zinc-100">
+              <span className="text-[#a5c9ca] font-bold block mb-1">Frontend Framework</span>
+              <span className="text-zinc-700">Next.js (Pages Router) + React</span>
+            </div>
+            <div className="bg-[#fafafa] p-4 rounded-xl border border-zinc-100">
+              <span className="text-[#a5c9ca] font-bold block mb-1">Styling & Design</span>
+              <span className="text-zinc-700">Tailwind CSS (Custom Literary UI)</span>
+            </div>
+            <div className="bg-[#fafafa] p-4 rounded-xl border border-zinc-100">
+              <span className="text-[#a5c9ca] font-bold block mb-1">Database & API</span>
+              <span className="text-zinc-700">Supabase Cloud PostgreSQL</span>
+            </div>
+            <div className="bg-[#fafafa] p-4 rounded-xl border border-zinc-100">
+              <span className="text-[#a5c9ca] font-bold block mb-1">Hosting & Storage</span>
+              <span className="text-zinc-700">Vercel / Cloudflare Pages + Buckets</span>
+            </div>
+          </div>
+        </section>
+
+        {/* 板块 3：赞助与维护 */}
+        <section className="bg-white rounded-2xl p-8 sm:p-12 border border-zinc-100 shadow-sm mb-10 transition hover:shadow-md">
+          <div className="flex items-center space-x-3 mb-6">
+            <span className="w-2 h-2 rounded-full bg-[#a5c9ca]"></span>
+            <h2 className="text-sm font-semibold tracking-widest text-zinc-800 uppercase font-mono">
+              03. 赞助与维护 (SPONSORSHIP)
+            </h2>
+          </div>
+          <p className="text-sm text-zinc-600 leading-relaxed font-light mb-6">
+            为了让国内同好能够稳定、快速地访问本站，我们需要长期支付国内优化域名及相关云服务的续费费用。如果您喜欢这个站点，并愿意为它的日常维护和域名开销提供一点支持，可以通过下方方式进行赞助。
+          </p>
           
-          <div className="support-action">
-            <button className="support-btn" onClick={() => setShowQR(true)}>
-              <span className="icon-abstract">☕</span> 请站长喝杯咖啡 / 赞助域名
+          <div className="bg-[#fafafa] p-6 rounded-xl border border-zinc-100 text-center flex flex-col items-center justify-center">
+            <p className="text-xs text-zinc-500 font-mono mb-4">
+              ☕ 每一份支持，都是这个夏日故事继续延续的动力。
+            </p>
+            <div className="w-40 h-40 bg-white p-2 rounded-lg border border-zinc-200 shadow-sm flex items-center justify-center mb-3 overflow-hidden">
+              <img 
+                src="/alipay-qr.png" 
+                alt="Sponsor QR Code" 
+                className="w-full h-full object-contain"
+              />
+            </div>
+            <span className="text-[11px] text-zinc-400 font-mono">感谢您的每一份心意</span>
+          </div>
+        </section>
+
+        {/* 新增板块 4：社区互动与管理 (COMMUNITY & ADMIN) */}
+        <section className="bg-white rounded-2xl p-8 sm:p-12 border border-zinc-100 shadow-sm transition hover:shadow-md space-y-6">
+          <div className="flex items-center space-x-3 mb-4">
+            <span className="w-2 h-2 rounded-full bg-[#88abac]"></span>
+            <h2 className="text-sm font-semibold tracking-widest text-zinc-800 uppercase font-mono">
+              04. 社区互动与管理 (COMMUNITY & ADMIN)
+            </h2>
+          </div>
+          <p className="text-sm text-zinc-600 leading-relaxed font-light">
+            我们致力于维护一个干净、温馨的夜鹿粉丝讨论环境。如果你遇到了不良信息、有建设性意见，或者想成为团队一员共同守护小站，欢迎随时参与。
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            {/* 1. 意见/举报入口 */}
+            <button
+              onClick={() => { setActiveModal('feedback'); setMsg({ type: '', text: '' }); }}
+              className="p-5 rounded-xl border border-zinc-100 bg-[#fafafa] hover:bg-sky-50/50 hover:border-[#88abac]/40 transition text-left space-y-1.5 group"
+            >
+              <div className="text-lg">📢</div>
+              <div className="text-xs font-serif text-zinc-800 font-medium group-hover:text-[#88abac]">
+                反馈与举报不良信息
+              </div>
+              <div className="text-[11px] text-zinc-400 font-light">
+                提交违规内容处理与建议
+              </div>
+            </button>
+
+            {/* 2. 申请加入管理员团队 */}
+            <button
+              onClick={() => { setActiveModal('apply'); setMsg({ type: '', text: '' }); }}
+              className="p-5 rounded-xl border border-zinc-100 bg-[#fafafa] hover:bg-sky-50/50 hover:border-[#88abac]/40 transition text-left space-y-1.5 group"
+            >
+              <div className="text-lg">✉️</div>
+              <div className="text-xs font-serif text-zinc-800 font-medium group-hover:text-[#88abac]">
+                申请加入管理团队
+              </div>
+              <div className="text-[11px] text-zinc-400 font-light">
+                填写入站申请书并接收随机口令
+              </div>
+            </button>
+
+            {/* 3. 后台管理入口 */}
+            <button
+              onClick={() => { setActiveModal('login'); setMsg({ type: '', text: '' }); }}
+              className="p-5 rounded-xl border border-zinc-100 bg-[#fafafa] hover:bg-sky-50/50 hover:border-[#88abac]/40 transition text-left space-y-1.5 group"
+            >
+              <div className="text-lg">🔐</div>
+              <div className="text-xs font-serif text-zinc-800 font-medium group-hover:text-[#88abac]">
+                后台管理入口
+              </div>
+              <div className="text-[11px] text-zinc-400 font-light">
+                管理员口令验证登录
+              </div>
             </button>
           </div>
+        </section>
 
-          {/* 模态弹窗 */}
-          {showQR && (
-            <div className="modal-overlay" onClick={() => setShowQR(false)}>
-              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                <button className="close-btn" onClick={() => setShowQR(false)}>×</button>
-                <h3>支付宝扫一扫</h3>
-                <p className="modal-desc">感谢你的支持，让小站能够继续存活下去！</p>
-                <div className="qr-container">
-                  <img src="/alipay-qr.png" alt="支付宝赞赏码" />
-                </div>
-              </div>
-            </div>
-          )}
+        {/* 返回首页 */}
+        <div className="text-center mt-12">
+          <Link 
+            href="/" 
+            className="inline-block px-8 py-3 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white text-xs font-mono tracking-widest rounded-full transition shadow-sm"
+          >
+            ← 返回首页 INDEX
+          </Link>
         </div>
+
       </div>
 
-      <style jsx>{`
-        .site-wrapper {
-          min-height: 100vh;
-          background-color: #FFFFFF;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          color: #2D3748;
-          display: flex;
-          flex-direction: column;
-          justify-content: space-between;
-        }
+      {/* 弹窗区域 */}
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl p-6 sm:p-8 shadow-xl relative border border-zinc-100">
+            <button
+              onClick={() => setActiveModal(null)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-600 text-sm"
+            >
+              ✕
+            </button>
 
-        .main-content {
-          width: 100%;
-          max-width: 1100px;
-          margin: 0 auto;
-          padding: 40px 24px;
-        }
+            {/* 提示信息 */}
+            {msg.text && (
+              <div className={`p-3 rounded-xl mb-4 text-xs ${
+                msg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'
+              }`}>
+                {msg.text}
+              </div>
+            )}
 
-        .page-title {
-          font-size: 1.5rem;
-          font-weight: 500;
-          letter-spacing: 0.1em;
-          color: #2D3748;
-          margin-bottom: 30px;
-        }
+            {/* Modal 1: 反馈/举报 */}
+            {activeModal === 'feedback' && (
+              <form onSubmit={handleFeedbackSubmit} className="space-y-4">
+                <h3 className="text-lg font-serif text-zinc-800 tracking-wider">📢 反馈与举报不良信息</h3>
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">反馈类型</label>
+                  <select
+                    value={feedbackType}
+                    onChange={(e) => setFeedbackType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none"
+                  >
+                    <option value="report">🚨 举报不良/违规内容</option>
+                    <option value="suggestion">💡 小站建言与改进意见</option>
+                  </select>
+                </div>
 
-        .glass-card {
-          background: rgba(255, 255, 255, 0.9);
-          border: 1px solid rgba(163, 190, 190, 0.25);
-          border-radius: 12px;
-          padding: 32px;
-          margin-bottom: 24px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
-          transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">内容描述 *</label>
+                  <textarea
+                    rows={4}
+                    placeholder="请详细说明您遇到的违规内容或建议..."
+                    value={feedbackContent}
+                    onChange={(e) => setFeedbackContent(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none resize-none"
+                    required
+                  />
+                </div>
 
-        .glass-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 30px rgba(163, 190, 190, 0.15);
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">联系方式 (选填)</label>
+                  <input
+                    type="text"
+                    placeholder="邮箱或 QQ，方便管理员与您回复"
+                    value={feedbackContact}
+                    onChange={(e) => setFeedbackContact(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none"
+                  />
+                </div>
 
-        .glass-card h2 {
-          font-size: 1.1rem;
-          font-weight: 600;
-          color: #799898;
-          letter-spacing: 0.05em;
-          margin-bottom: 14px;
-        }
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-2.5 bg-[#88abac] text-white text-xs rounded-xl tracking-widest hover:bg-[#789b9c] transition"
+                >
+                  {submitting ? '提交中...' : '提交反馈 / SUBMIT'}
+                </button>
+              </form>
+            )}
 
-        .glass-card p, .glass-card li {
-          font-size: 0.95rem;
-          line-height: 1.8;
-          color: #4A5568;
-        }
+            {/* Modal 2: 申请加入管理团队 */}
+            {activeModal === 'apply' && (
+              <form onSubmit={handleApplySubmit} className="space-y-4">
+                <h3 className="text-lg font-serif text-zinc-800 tracking-wider">✉️ 申请加入管理员团队</h3>
+                <p className="text-[11px] text-zinc-400">
+                  审核通过后，初始管理口令及管理群号（1090225142）将自动发送至您的邮箱。
+                </p>
 
-        .tech-list {
-          list-style: none;
-          padding-left: 0;
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">鹿友昵称 *</label>
+                  <input
+                    type="text"
+                    placeholder="如：n-buna粉丝"
+                    value={applyNickname}
+                    onChange={(e) => setApplyNickname(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none"
+                    required
+                  />
+                </div>
 
-        .tech-list li {
-          position: relative;
-          padding-left: 16px;
-          margin-bottom: 6px;
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">E-mail 邮箱 *</label>
+                  <input
+                    type="email"
+                    placeholder="用于接收口令与群号通知"
+                    value={applyEmail}
+                    onChange={(e) => setApplyEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none"
+                    required
+                  />
+                </div>
 
-        .tech-list li::before {
-          content: "•";
-          position: absolute;
-          left: 0;
-          color: #799898;
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">申请书 / 入站动机 *</label>
+                  <textarea
+                    rows={4}
+                    placeholder="请分享您的管理意愿、平时对夜鹿的了解或管理经验..."
+                    value={applyReason}
+                    onChange={(e) => setApplyReason(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none resize-none"
+                    required
+                  />
+                </div>
 
-        .social-links {
-          display: flex;
-          gap: 14px;
-          flex-wrap: wrap;
-          align-items: center;
-          margin-top: 12px;
-        }
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-2.5 bg-[#88abac] text-white text-xs rounded-xl tracking-widest hover:bg-[#789b9c] transition"
+                >
+                  {submitting ? '提交申请中...' : '提交申请书 / APPLY'}
+                </button>
+              </form>
+            )}
 
-        .social-links a {
-          display: inline-block;
-          padding: 8px 18px;
-          background: rgba(121, 152, 152, 0.1);
-          color: #5E7A7A;
-          border-radius: 6px;
-          text-decoration: none;
-          font-weight: 500;
-          font-size: 0.9rem;
-          transition: all 0.2s ease;
-        }
+            {/* Modal 3: 管理员登录 */}
+            {activeModal === 'login' && (
+              <form onSubmit={handleAdminLogin} className="space-y-4">
+                <h3 className="text-lg font-serif text-zinc-800 tracking-wider">🔐 后台管理登录</h3>
+                <p className="text-[11px] text-zinc-400">
+                  请输入超级管理员密码或发放的 6 位临时管理口令。
+                </p>
 
-        .social-links a:hover {
-          background: #799898;
-          color: #FFFFFF;
-        }
+                <div>
+                  <label className="block text-xs font-serif text-zinc-600 mb-1">管理口令 / Password *</label>
+                  <input
+                    type="password"
+                    placeholder="请输入管理密码..."
+                    value={loginPass}
+                    onChange={(e) => setLoginPass(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none font-mono"
+                    required
+                  />
+                </div>
 
-        .uid-tag {
-          font-size: 0.85rem;
-          color: #A0AEC0;
-          padding: 8px 0;
-        }
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full py-2.5 bg-[#88abac] text-white text-xs rounded-xl tracking-widest hover:bg-[#789b9c] transition"
+                >
+                  {submitting ? '验证中...' : '登录后台 / ENTER ADMIN'}
+                </button>
+              </form>
+            )}
 
-        /* 赞赏按钮与抽象图标样式 */
-        .support-action {
-          margin-top: 20px;
-          display: flex;
-          justify-content: flex-start;
-        }
-
-        .support-btn {
-          display: inline-flex;
-          align-items: center;
-          gap: 10px;
-          padding: 12px 24px;
-          background: rgba(121, 152, 152, 0.12);
-          color: #5E7A7A;
-          border: 1px solid rgba(121, 152, 152, 0.3);
-          border-radius: 8px;
-          font-size: 0.95rem;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.25s ease;
-        }
-
-        .support-btn:hover {
-          background: #799898;
-          color: #FFFFFF;
-          transform: translateY(-2px);
-          box-shadow: 0 4px 15px rgba(121, 152, 152, 0.3);
-        }
-
-        /* 模态弹窗样式 */
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          background: rgba(0, 0, 0, 0.4);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 999;
-          animation: fadeIn 0.2s ease;
-        }
-
-        .modal-content {
-          background: #FFFFFF;
-          padding: 30px 40px;
-          border-radius: 16px;
-          box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-          text-align: center;
-          position: relative;
-          max-width: 340px;
-          width: 90%;
-          animation: scaleUp 0.2s ease;
-        }
-
-        .close-btn {
-          position: absolute;
-          top: 12px;
-          right: 16px;
-          background: transparent;
-          border: none;
-          font-size: 1.5rem;
-          color: #A0AEC0;
-          cursor: pointer;
-          transition: color 0.2s;
-        }
-
-        .close-btn:hover {
-          color: #2D3748;
-        }
-
-        .modal-content h3 {
-          font-size: 1.1rem;
-          color: #2D3748;
-          margin-bottom: 6px;
-        }
-
-        .modal-desc {
-          font-size: 0.85rem;
-          color: #718096;
-          margin-bottom: 20px;
-        }
-
-        .qr-container img {
-          width: 180px;
-          height: 180px;
-          border-radius: 10px;
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          padding: 8px;
-          background: #FFFFFF;
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-
-        @keyframes scaleUp {
-          from { transform: scale(0.95); opacity: 0; }
-          to { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
-    </div>
+          </div>
+        </div>
+      )}
+    </Layout>
   );
 }

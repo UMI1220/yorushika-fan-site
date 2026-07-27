@@ -10,9 +10,13 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
+    "adm-zip": "^0.6.0",
+    "formidable": "^3.5.4",
+    "jszip": "^3.10.1",
     "next": "16.2.11",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "resend": "^6.18.0"
   },
   "devDependencies": {
     "@cloudflare/next-on-pages": "^1.13.16",
