@@ -12,13 +12,13 @@ export default function MusicPage() {
   const [duration, setDuration] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // 🔍 搜索与专辑筛选状态
+  // 🆕 新增：搜索与专辑筛选状态
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAlbum, setSelectedAlbum] = useState('ALL');
 
   // 歌词语言 Tab: 'jp' | 'cn'
   const [lyricTab, setLyricTab] = useState('jp');
-  // 视图模式: 'cover' (封面) | 'mv' (MV模式)
+  // 视图模式: 'cover' (封面/MV) | 'mv' (全屏/大窗口MV)
   const [viewMode, setViewMode] = useState('cover');
 
   const audioRef = useRef(null);
@@ -44,12 +44,12 @@ export default function MusicPage() {
     }
   };
 
-  // 提取所有不重复的专辑列表
-  const allAlbums = ['ALL', ...Array.from(new Set(tracks.map(t => t.album).filter(Boolean)))];
+  // 🆕 提取所有不重复的专辑列表
+  const allAlbums = ['ALL', ...Array.from(new Set(tracks.map((t) => t.album).filter(Boolean)))];
 
-  // 根据搜索词和选择的专辑进行过滤
+  // 🆕 根据搜索词和专辑过滤后的曲目列表
   const filteredTracks = tracks.filter((track) => {
-    const matchesSearch = 
+    const matchesSearch =
       (track.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (track.album || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (track.artist || '').toLowerCase().includes(searchQuery.toLowerCase());
@@ -61,16 +61,15 @@ export default function MusicPage() {
 
   const currentTrack = filteredTracks[currentTrackIndex] || filteredTracks[0] || null;
 
-  // 播放器事件绑定
-  const handlePlayPause = () => {
-    if (!audioRef.current || !currentTrack) return;
+  // 播放控制
+  const togglePlay = () => {
+    if (!audioRef.current) return;
     if (isPlaying) {
       audioRef.current.pause();
-      setIsPlaying(false);
     } else {
-      audioRef.current.play().catch(console.error);
-      setIsPlaying(true);
+      audioRef.current.play();
     }
+    setIsPlaying(!isPlaying);
   };
 
   const handleTimeUpdate = () => {
@@ -81,23 +80,10 @@ export default function MusicPage() {
   };
 
   const handleSeek = (e) => {
-    const time = Number(e.target.value);
-    setCurrentTime(time);
+    const newTime = parseFloat(e.target.value);
+    setCurrentTime(newTime);
     if (audioRef.current) {
-      audioRef.current.currentTime = time;
-    }
-  };
-
-  const playTrack = (track) => {
-    const idx = filteredTracks.findIndex((t) => t.id === track.id);
-    if (idx !== -1) {
-      setCurrentTrackIndex(idx);
-      setIsPlaying(true);
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.play().catch(console.error);
-        }
-      }, 50);
+      audioRef.current.currentTime = newTime;
     }
   };
 
@@ -108,7 +94,7 @@ export default function MusicPage() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // 🎬 智能视频/MV 解析组件
+  // 智能视频内嵌渲染器 (支持 B站 / YouTube)
   const renderMvPlayer = (url) => {
     if (!url) return null;
 
@@ -155,26 +141,26 @@ export default function MusicPage() {
       </Head>
 
       <div className="max-w-6xl mx-auto px-4 py-8">
-        
         {/* 页头 */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-zinc-100 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 border-b border-zinc-100 pb-6">
           <div>
             <h1 className="text-2xl font-serif text-zinc-900 tracking-wide">ヨルシカ 音轨全集</h1>
-            <p className="text-xs font-mono text-zinc-400 mt-1">按专辑分类检索与双语歌词试听</p>
+            <p className="text-xs font-mono text-zinc-400 mt-1">
+              精选音乐试听、双语歌词与官方 MV 嵌入播放
+            </p>
           </div>
           <Link
             href="/music/submit"
-            className="inline-flex items-center justify-center px-4 py-2 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-mono shadow-sm transition-all"
+            className="inline-flex items-center justify-center px-5 py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-mono tracking-wider shadow-sm transition-all"
           >
             🎵 贡献新音轨 / MV
           </Link>
         </div>
 
-        {/* 🔍 搜索与专辑筛选控制栏 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          
+        {/* 🆕 新增：搜索与专辑分类筛选栏 */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 mb-8">
           {/* 实时搜索框 */}
-          <div className="md:col-span-1 relative">
+          <div className="relative w-full md:w-72">
             <input
               type="text"
               placeholder="🔍 搜索歌名 / 专辑 / 词曲..."
@@ -183,7 +169,7 @@ export default function MusicPage() {
                 setSearchQuery(e.target.value);
                 setCurrentTrackIndex(0);
               }}
-              className="w-full px-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-xs font-mono focus:outline-none focus:border-[#88abac] shadow-sm"
+              className="w-full px-4 py-2 bg-white border border-zinc-200 rounded-xl text-xs font-mono focus:outline-none focus:border-[#88abac]"
             />
             {searchQuery && (
               <button
@@ -195,8 +181,8 @@ export default function MusicPage() {
             )}
           </div>
 
-          {/* 专辑分类列表横向滚动 */}
-          <div className="md:col-span-2 flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+          {/* 专辑分类 Filter */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
             {allAlbums.map((album) => (
               <button
                 key={album}
@@ -204,9 +190,9 @@ export default function MusicPage() {
                   setSelectedAlbum(album);
                   setCurrentTrackIndex(0);
                 }}
-                className={`px-4 py-2 rounded-xl text-xs font-mono whitespace-nowrap border transition-all ${
+                className={`px-3.5 py-1.5 rounded-full text-xs font-mono whitespace-nowrap border transition-all ${
                   selectedAlbum === album
-                    ? 'bg-zinc-900 text-white border-zinc-900 shadow-sm'
+                    ? 'bg-zinc-900 text-white border-zinc-900'
                     : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
                 }`}
               >
@@ -214,43 +200,41 @@ export default function MusicPage() {
               </button>
             ))}
           </div>
-
         </div>
 
-        {/* 主内容区域 */}
         {loading ? (
           <div className="py-24 text-center font-mono text-xs text-zinc-400 animate-pulse">
-            Loading tracks...
+            Loading music player...
           </div>
         ) : filteredTracks.length === 0 ? (
-          <div className="py-20 text-center bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
-            <p className="text-xs font-mono text-zinc-400">未找到符合条件的歌曲</p>
+          <div className="py-20 text-center bg-zinc-50/50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-xs font-mono text-zinc-400">暂无找到符合条件的歌曲</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
-            {/* 左侧：音频/MV播放器与歌词显示卡片 (8 cols) */}
+            {/* 左侧：播放器主卡片与歌词区 (7 cols) */}
             <div className="lg:col-span-7 space-y-6">
               
-              {/* 播放器与主卡片 */}
+              {/* 播放器卡片 */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm relative">
                 
-                {/* 封面 / MV 视图切换栏 */}
+                {/* 视图模式切换按钮 (在有 MV 链接时展示) */}
                 {currentTrack?.mv_url && (
                   <div className="flex justify-end mb-4 gap-2">
                     <button
                       onClick={() => setViewMode('cover')}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition ${
+                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
                         viewMode === 'cover'
                           ? 'bg-zinc-800 text-white border-zinc-800'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
                       }`}
                     >
-                      🖼️ 封面
+                      🖼️ 封面视图
                     </button>
                     <button
                       onClick={() => setViewMode('mv')}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition ${
+                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
                         viewMode === 'mv'
                           ? 'bg-rose-500 text-white border-rose-500'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
@@ -261,7 +245,7 @@ export default function MusicPage() {
                   </div>
                 )}
 
-                {/* 1. 封面展示 / MV播放展示 */}
+                {/* 封面 / MV 区域 */}
                 {viewMode === 'mv' && currentTrack?.mv_url ? (
                   <div className="aspect-video w-full mb-6">
                     {renderMvPlayer(currentTrack.mv_url)}
@@ -276,15 +260,17 @@ export default function MusicPage() {
                   </div>
                 )}
 
-                {/* 歌曲信息 */}
+                {/* 歌曲标题与信息 */}
                 <div className="text-center mb-6">
-                  <h2 className="text-xl font-serif text-zinc-900">{currentTrack?.title}</h2>
+                  <h2 className="text-xl sm:text-2xl font-serif text-zinc-900">
+                    {currentTrack?.title}
+                  </h2>
                   <p className="text-xs font-mono text-zinc-400 mt-1">
-                    {currentTrack?.artist || 'ヨルシカ'} · 《{currentTrack?.album || '未知专辑'}》
+                    {currentTrack?.artist} • 《{currentTrack?.album}》
                   </p>
                 </div>
 
-                {/* 音频标签 */}
+                {/* Audio 元素 */}
                 <audio
                   ref={audioRef}
                   src={currentTrack?.audio_url}
@@ -306,7 +292,7 @@ export default function MusicPage() {
                     max={duration || 0}
                     value={currentTime}
                     onChange={handleSeek}
-                    className="w-full h-1.5 bg-zinc-100 rounded-lg appearance-none cursor-pointer accent-[#88abac]"
+                    className="w-full h-1 bg-zinc-100 rounded-lg appearance-none cursor-pointer accent-[#88abac]"
                   />
                   <div className="flex justify-between text-[10px] font-mono text-zinc-400">
                     <span>{formatTime(currentTime)}</span>
@@ -314,27 +300,31 @@ export default function MusicPage() {
                   </div>
                 </div>
 
-                {/* 播放控制按钮 */}
+                {/* 播放控制条 */}
                 <div className="flex items-center justify-center gap-6">
                   <button
-                    onClick={() => setCurrentTrackIndex((p) => Math.max(0, p - 1))}
+                    onClick={() => setCurrentTrackIndex((prev) => Math.max(0, prev - 1))}
                     disabled={currentTrackIndex === 0}
-                    className="p-2 text-zinc-400 hover:text-zinc-800 disabled:opacity-30 transition"
+                    className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 transition"
                   >
                     ⏮️
                   </button>
 
                   <button
-                    onClick={handlePlayPause}
+                    onClick={togglePlay}
                     className="w-12 h-12 rounded-full bg-[#88abac] text-white flex items-center justify-center shadow-md hover:bg-[#789b9c] transition-all"
                   >
                     {isPlaying ? '⏸️' : '▶️'}
                   </button>
 
                   <button
-                    onClick={() => setCurrentTrackIndex((p) => Math.min(filteredTracks.length - 1, p + 1))}
+                    onClick={() =>
+                      setCurrentTrackIndex((prev) =>
+                        Math.min(filteredTracks.length - 1, prev + 1)
+                      )
+                    }
                     disabled={currentTrackIndex === filteredTracks.length - 1}
-                    className="p-2 text-zinc-400 hover:text-zinc-800 disabled:opacity-30 transition"
+                    className="p-2 text-zinc-400 hover:text-zinc-700 disabled:opacity-30 transition"
                   >
                     ⏭️
                   </button>
@@ -342,14 +332,14 @@ export default function MusicPage() {
 
               </div>
 
-              {/* 歌词卡片 */}
+              {/* 歌词区 */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm">
                 <div className="flex items-center justify-between border-b border-zinc-100 pb-4 mb-4">
                   <span className="text-xs font-serif text-zinc-800 font-medium">📝 歌词文本</span>
                   <div className="flex gap-2 font-mono text-xs">
                     <button
                       onClick={() => setLyricTab('jp')}
-                      className={`px-3 py-1 rounded-lg border transition ${
+                      className={`px-3 py-1 rounded-lg border transition-all ${
                         lyricTab === 'jp'
                           ? 'bg-zinc-900 text-white border-zinc-900'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
@@ -359,7 +349,7 @@ export default function MusicPage() {
                     </button>
                     <button
                       onClick={() => setLyricTab('cn')}
-                      className={`px-3 py-1 rounded-lg border transition ${
+                      className={`px-3 py-1 rounded-lg border transition-all ${
                         lyricTab === 'cn'
                           ? 'bg-zinc-900 text-white border-zinc-900'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
@@ -382,66 +372,58 @@ export default function MusicPage() {
             {/* 右侧：播放列表与版权说明 (5 cols) */}
             <div className="lg:col-span-5 space-y-6">
               
-              {/* 歌曲列表 */}
+              {/* 播放列表 */}
               <div className="bg-white rounded-3xl p-6 border border-zinc-100 shadow-sm">
-                <div className="flex items-center justify-between mb-4 border-b border-zinc-100 pb-3">
-                  <h3 className="text-xs font-serif text-zinc-800 font-semibold">
-                    📋 歌单曲目 ({filteredTracks.length})
-                  </h3>
-                  {selectedAlbum !== 'ALL' && (
-                    <span className="text-[10px] font-mono text-[#88abac] bg-teal-50 px-2 py-0.5 rounded">
-                      《{selectedAlbum}》
-                    </span>
-                  )}
-                </div>
+                <h3 className="text-xs font-serif text-zinc-800 font-medium mb-4 border-b border-zinc-100 pb-3">
+                  📋 播放队列 ({filteredTracks.length})
+                </h3>
 
-                <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
-                  {filteredTracks.map((track, idx) => {
-                    const isCurrent = currentTrack?.id === track.id;
-                    return (
-                      <div
-                        key={track.id || idx}
-                        onClick={() => playTrack(track)}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                          isCurrent
-                            ? 'bg-[#88abac]/10 border-[#88abac] shadow-sm'
-                            : 'bg-zinc-50/50 hover:bg-zinc-100/80 border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <img
-                            src={track.cover_url || '/01.jpg'}
-                            alt=""
-                            className="w-10 h-10 rounded-xl object-cover shrink-0 border border-zinc-200"
-                          />
-                          <div className="min-w-0">
-                            <p className={`text-xs font-serif truncate ${isCurrent ? 'text-[#88abac] font-bold' : 'text-zinc-800'}`}>
-                              {track.title}
-                            </p>
-                            <p className="text-[10px] font-mono text-zinc-400 truncate mt-0.5">
-                              《{track.album || '未知专辑'}》
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {filteredTracks.map((track, idx) => (
+                    <button
+                      key={track.id || idx}
+                      onClick={() => {
+                        setCurrentTrackIndex(idx);
+                        setIsPlaying(true);
+                        setTimeout(() => {
+                          if (audioRef.current) audioRef.current.play();
+                        }, 50);
+                      }}
+                      className={`w-full text-left p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                        currentTrackIndex === idx
+                          ? 'bg-[#88abac]/10 border-[#88abac] shadow-sm'
+                          : 'bg-zinc-50/50 hover:bg-zinc-100/80 border-transparent'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={`text-xs font-serif truncate ${
+                            currentTrackIndex === idx
+                              ? 'text-[#88abac] font-semibold'
+                              : 'text-zinc-800'
+                          }`}
+                        >
+                          {track.title}{' '}
                           {track.mv_url && (
-                            <span className="text-[9px] font-mono bg-rose-50 text-rose-500 px-1.5 py-0.5 rounded border border-rose-100">
+                            <span className="text-[10px] px-1 bg-rose-50 text-rose-500 rounded border border-rose-100">
                               MV
                             </span>
                           )}
-                          {isCurrent && isPlaying && (
-                            <span className="text-xs animate-pulse">🎵</span>
-                          )}
-                        </div>
+                        </p>
+                        <p className="text-[11px] text-zinc-400 truncate">
+                          {track.artist} • 《{track.album}》
+                        </p>
                       </div>
-                    );
-                  })}
+                      {currentTrackIndex === idx && isPlaying && (
+                        <span className="text-xs animate-pulse">🎵</span>
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {/* 版权声明 */}
-              <div className="bg-zinc-50/80 rounded-2xl p-5 border border-zinc-200/60 text-[11px] text-zinc-500 leading-relaxed space-y-2 font-sans">
+              <div className="bg-zinc-50 rounded-2xl p-5 border border-zinc-200/60 text-[11px] text-zinc-500 leading-relaxed space-y-2 font-sans">
                 <div className="flex items-center gap-1.5 font-serif text-zinc-700 font-medium text-xs">
                   <span>🛡️</span>
                   <span>版权与免责说明</span>
