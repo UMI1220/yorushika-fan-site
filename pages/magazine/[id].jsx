@@ -54,6 +54,33 @@ export default function MagazineDetail() {
     fetchStamps();
   }, [id]);
 
+  // 🌟 新增：监听键盘左右方向键操控翻页
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // 避免用户在输入框/文本域打字时误触发翻页
+      const activeTag = document.activeElement?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      if (e.key === 'ArrowLeft') {
+        // 左方向键：上一页
+        setCurrentPage((p) => Math.max(1, p - 1));
+        setActiveCoords(null);
+      } else if (e.key === 'ArrowRight') {
+        // 右方向键：下一页
+        setPageImages((images) => {
+          if (images.length > 0) {
+            setCurrentPage((p) => Math.min(images.length, p + 1));
+            setActiveCoords(null);
+          }
+          return images;
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // 拉取戳记列表
   async function fetchStamps() {
     if (!id) return;
@@ -347,7 +374,7 @@ export default function MagazineDetail() {
             )}
 
             <p className="mt-4 text-[11px] font-mono text-zinc-400">
-              💡 提示：点击画幅任意角落即可原地弹出留言框盖章
+              💡 提示：点击画幅任意角落即可盖章，亦支持键盘 ⬅️ ➡️ 方向键翻页
             </p>
 
           </div>
