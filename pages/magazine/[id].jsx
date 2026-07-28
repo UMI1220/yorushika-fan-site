@@ -54,7 +54,7 @@ export default function MagazineDetail() {
     fetchStamps();
   }, [id]);
 
-  // 🌟 新增：监听键盘左右方向键操控翻页
+  // 监听键盘左右方向键操控翻页
   useEffect(() => {
     const handleKeyDown = (e) => {
       // 避免用户在输入框/文本域打字时误触发翻页
@@ -81,17 +81,15 @@ export default function MagazineDetail() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // 拉取戳记列表
+  // 拉取戳记列表（已修认为是 data.annotations / data.stamps 的数据挂载逻辑）
   async function fetchStamps() {
     if (!id) return;
     try {
       const res = await fetch(`/api/stamp?magazineId=${id}`);
       const data = await res.json();
-      if (data && Array.isArray(data.stamps)) {
-        setStamps(data.stamps);
-      } else if (Array.isArray(data)) {
-        setStamps(data);
-      }
+      // 兼容接口返回的 annotations, stamps 数组或纯数组格式
+      const list = data.annotations || data.stamps || (Array.isArray(data) ? data : []);
+      setStamps(list);
     } catch (err) {
       console.error('获取戳记失败:', err);
     }
@@ -310,7 +308,7 @@ export default function MagazineDetail() {
               )}
             </div>
 
-            {/* 🌟 核心改进：在点击位置即时弹出浮动输入框 🌟 */}
+            {/* 核心改进：在点击位置即时弹出浮动输入框 */}
             {activeCoords && (
               <div 
                 style={{
