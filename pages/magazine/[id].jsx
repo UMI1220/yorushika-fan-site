@@ -19,6 +19,7 @@ export default function MagazineDetail() {
   // 戳记与留言状态
   const [stamps, setStamps] = useState([]);
   const [activeCoords, setActiveCoords] = useState(null); // { x, y } 相对百分比
+  const [selectedStamp, setSelectedStamp] = useState(null); // 📱 移动端/点击选中的戳记
   const [nickname, setNickname] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -57,20 +58,19 @@ export default function MagazineDetail() {
   // 监听键盘左右方向键操控翻页
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // 避免用户在输入框/文本域打字时误触发翻页
       const activeTag = document.activeElement?.tagName;
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
 
       if (e.key === 'ArrowLeft') {
-        // 左方向键：上一页
         setCurrentPage((p) => Math.max(1, p - 1));
         setActiveCoords(null);
+        setSelectedStamp(null);
       } else if (e.key === 'ArrowRight') {
-        // 右方向键：下一页
         setPageImages((images) => {
           if (images.length > 0) {
             setCurrentPage((p) => Math.min(images.length, p + 1));
             setActiveCoords(null);
+            setSelectedStamp(null);
           }
           return images;
         });
@@ -81,13 +81,12 @@ export default function MagazineDetail() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // 拉取戳记列表（已修认为是 data.annotations / data.stamps 的数据挂载逻辑）
+  // 拉取戳记列表
   async function fetchStamps() {
     if (!id) return;
     try {
       const res = await fetch(`/api/stamp?magazineId=${id}`);
       const data = await res.json();
-      // 兼容接口返回的 annotations, stamps 数组或纯数组格式
       const list = data.annotations || data.stamps || (Array.isArray(data) ? data : []);
       setStamps(list);
     } catch (err) {
@@ -139,8 +138,14 @@ export default function MagazineDetail() {
     }
   }
 
-  // 点击画幅，精准定位盖章位置并弹出浮层
+  // 点击画幅：精准定位盖章位置
   const handlePageClick = (e) => {
+    // 📱 如果当前打开了某个戳记详情，点击空白处时先关闭详情，不触发新增盖章
+    if (selectedStamp) {
+      setSelectedStamp(null);
+      return;
+    }
+
     if (!readerAreaRef.current) return;
     const rect = readerAreaRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 100;
@@ -230,7 +235,7 @@ export default function MagazineDetail() {
           <div className="mb-6 flex items-center justify-between bg-zinc-50 px-6 py-3 rounded-2xl border border-zinc-200/80 shadow-sm">
             <button
               disabled={currentPage <= 1}
-              onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); setActiveCoords(null); }}
+              onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); setActiveCoords(null); setSelectedStamp(null); }}
               className="px-5 py-2 bg-zinc-900 text-white font-mono text-xs rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
             >
               ← 上一页
@@ -240,7 +245,7 @@ export default function MagazineDetail() {
             </div>
             <button
               disabled={currentPage >= pageImages.length}
-              onClick={() => { setCurrentPage((p) => Math.min(pageImages.length, p + 1)); setActiveCoords(null); }}
+              onClick={() => { setCurrentPage((p) => Math.min(pageImages.length, p + 1)); setActiveCoords(null); setSelectedStamp(null); }}
               className="px-5 py-2 bg-zinc-900 text-white font-mono text-xs rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
             >
               下一页 →
@@ -278,20 +283,48 @@ export default function MagazineDetail() {
               {currentPageStamps.map((stamp, idx) => {
                 const posX = stamp.x_percent || stamp.x || 50;
                 const posY = stamp.y_percent || stamp.y || 50;
+                const isSelected = selectedStamp && (selectedStamp.id === stamp.id || selectedStamp === stamp);
+
                 return (
                   <div
                     key={stamp.id || idx}
                     style={{ left: `${posX}%`, top: `${posY}%` }}
                     className="absolute -translate-x-1/2 -translate-y-1/2 group z-20"
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation(); // ✋ 阻止冒泡到画幅，避免触发新增盖章！
+                      setActiveCoords(null); // 关闭新增弹窗
+                      setSelectedStamp(isSelected ? null : stamp); // 切换当前选中状态
+                    }}
                   >
-                    <div className="w-6 h-6 rounded-full bg-[#a5c9ca]/80 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[10px] text-white font-mono animate-bounce cursor-pointer">
-                      🌸
+                    {/* 戳记图标：扩大透明点击区域 (p-2.5) 方便移动端手指轻触 */}
+                    <div className="p-2.5 cursor-pointer">
+                      <div className={`w-7 h-7 rounded-full bg-[#a5c9ca]/90 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-xs font-mono transition-transform active:scale-125 ${isSelected ? 'scale-125 ring-2 ring-[#a5c9ca]' : 'animate-bounce'}`}>
+                        🌸
+                      </div>
                     </div>
-                    {/* 悬浮提示框 */}
-                    <div className="absolute left-1/2 bottom-full mb-2 -translate-x-1/2 hidden group-hover:block w-48 p-2.5 bg-zinc-900/95 text-white rounded-lg text-xs shadow-xl z-30 pointer-events-none">
-                      <p className="font-semibold text-[11px] text-[#a5c9ca]">{stamp.nickname || stamp.author || '粉丝'}</p>
-                      <p className="text-[11px] text-zinc-200 mt-0.5">{stamp.content}</p>
+
+                    {/* 评论详情弹窗：PC 端 Hover 或 手机端 Tap 均可显示 */}
+                    <div 
+                      className={`absolute left-1/2 bottom-full mb-2 -translate-x-1/2 w-52 p-3 bg-zinc-900/95 text-white rounded-xl text-xs shadow-2xl z-30 transition-all duration-200 ${
+                        isSelected ? 'block scale-100 opacity-100 pointer-events-auto' : 'hidden group-hover:block'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between pb-1 border-b border-zinc-700/60 mb-1.5">
+                        <span className="font-semibold text-xs text-[#a5c9ca] truncate max-w-[120px]">
+                          {stamp.nickname || stamp.author || '月光下的鹿友'}
+                        </span>
+                        <button 
+                          type="button" 
+                          onClick={() => setSelectedStamp(null)} 
+                          className="text-zinc-400 hover:text-white text-xs px-1"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <p className="text-xs text-zinc-200 leading-relaxed break-words whitespace-pre-wrap">
+                        {stamp.content}
+                      </p>
                     </div>
                   </div>
                 );
@@ -308,7 +341,7 @@ export default function MagazineDetail() {
               )}
             </div>
 
-            {/* 核心改进：在点击位置即时弹出浮动输入框 */}
+            {/* 盖章输入浮框 */}
             {activeCoords && (
               <div 
                 style={{
