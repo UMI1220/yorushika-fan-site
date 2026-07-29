@@ -26,6 +26,10 @@ export default function MagazineDetail() {
 
   const readerAreaRef = useRef(null);
 
+  // 📱 手机端触摸滑动坐标记录
+  const touchStartX = useRef(0);
+  const touchEndX = useRef(0);
+
   // 1. 获取期刊详情与已有戳记
   useEffect(() => {
     if (!id) return;
@@ -41,7 +45,12 @@ export default function MagazineDetail() {
 
         if (currentMag) {
           setMagazine(currentMag);
-          loadAndUnzip(currentMag.zip_url || currentMag.pdf_url);
+          const targetUrl = currentMag.zip_url || currentMag.file_url || currentMag.pdf_url;
+          if (targetUrl) {
+            loadAndUnzip(targetUrl);
+          } else {
+            setLoading(false);
+          }
         } else {
           setLoading(false);
         }
@@ -104,6 +113,7 @@ export default function MagazineDetail() {
     try {
       setDecompressing(true);
       const response = await fetch(fileUrl);
+      if (!response.ok) throw new Error('网络请求错误');
       const blob = await response.blob();
       
       const zip = new JSZip();
@@ -138,9 +148,29 @@ export default function MagazineDetail() {
     }
   }
 
+  // 📱 手机端滑动切页处理函数
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const handleTouchEnd = (e) => {
+    touchEndX.current = e.changedTouches[0].clientX;
+    const distance = touchStartX.current - touchEndX.current;
+
+    if (distance > 50 && currentPage < pageImages.length) {
+      setCurrentPage((p) => Math.min(pageImages.length, p + 1));
+      setActiveCoords(null);
+      setSelectedStamp(null);
+    } 
+    else if (distance < -50 && currentPage > 1) {
+      setCurrentPage((p) => Math.max(1, p - 1));
+      setActiveCoords(null);
+      setSelectedStamp(null);
+    }
+  };
+
   // 点击画幅：精准定位盖章位置
   const handlePageClick = (e) => {
-    // 📱 如果当前打开了某个戳记详情，点击空白处时先关闭详情，不触发新增盖章
     if (selectedStamp) {
       setSelectedStamp(null);
       return;
@@ -205,7 +235,7 @@ export default function MagazineDetail() {
       <Layout>
         <div className="text-center py-32">
           <p className="text-xs font-mono text-zinc-400 mb-4">未找到该刊物信息</p>
-          <Link href="/magazine" className="text-xs font-mono text-[#a5c9ca] underline">
+          <Link href="/magazine" className="text-xs font-mono text-[#88abac] underline">
             ← 返回刊物列表
           </Link>
         </div>
@@ -215,12 +245,12 @@ export default function MagazineDetail() {
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8 relative">
         
         {/* 顶部刊物标题与返回 */}
         <div className="mb-6 flex items-center justify-between border-b border-zinc-100 pb-4">
           <div>
-            <Link href="/magazine" className="text-xs font-mono text-zinc-400 hover:text-zinc-700 transition">
+            <Link href="/magazine" className="text-xs font-mono text-[#88abac] hover:text-[#a5c9ca] transition">
               ← 返回列表
             </Link>
             <h1 className="text-xl font-serif text-zinc-900 mt-2">{magazine.title}</h1>
@@ -236,17 +266,17 @@ export default function MagazineDetail() {
             <button
               disabled={currentPage <= 1}
               onClick={() => { setCurrentPage((p) => Math.max(1, p - 1)); setActiveCoords(null); setSelectedStamp(null); }}
-              className="px-5 py-2 bg-zinc-900 text-white font-mono text-xs rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
+              className="px-5 py-2 bg-[#88abac] hover:bg-[#a5c9ca] text-white font-mono text-xs rounded-full disabled:opacity-30 transition shadow-sm"
             >
               ← 上一页
             </button>
             <div className="text-xs font-mono text-zinc-600 font-medium">
-              第 <span className="text-[#a5c9ca] font-bold text-sm">{currentPage}</span> / {pageImages.length} 页
+              第 <span className="text-[#88abac] font-bold text-sm">{currentPage}</span> / {pageImages.length} 页
             </div>
             <button
               disabled={currentPage >= pageImages.length}
               onClick={() => { setCurrentPage((p) => Math.min(pageImages.length, p + 1)); setActiveCoords(null); setSelectedStamp(null); }}
-              className="px-5 py-2 bg-zinc-900 text-white font-mono text-xs rounded-full disabled:opacity-30 hover:bg-zinc-800 transition"
+              className="px-5 py-2 bg-[#88abac] hover:bg-[#a5c9ca] text-white font-mono text-xs rounded-full disabled:opacity-30 transition shadow-sm"
             >
               下一页 →
             </button>
@@ -267,62 +297,71 @@ export default function MagazineDetail() {
         ) : (
           <div className="flex flex-col items-center relative">
             
-            {/* 图像容器，支持点选盖章 */}
+            {/* 图像容器：使用 relative 且防撑开 */}
             <div 
               ref={readerAreaRef}
               onClick={handlePageClick}
-              className="relative max-w-3xl w-full bg-white shadow-xl rounded-xl overflow-hidden border border-zinc-100 cursor-crosshair select-none"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+              className="relative max-w-3xl w-full bg-white shadow-xl rounded-xl border border-zinc-100 cursor-crosshair select-none touch-pan-y"
             >
               <img
                 src={pageImages[currentPage - 1]}
                 alt={`Page ${currentPage}`}
-                className="w-full h-auto object-contain block"
+                className="w-full h-auto object-contain block rounded-xl"
               />
 
-              {/* 渲染已有戳记 */}
+              {/* 渲染已有戳记图标 */}
               {currentPageStamps.map((stamp, idx) => {
-                const posX = stamp.x_percent || stamp.x || 50;
-                const posY = stamp.y_percent || stamp.y || 50;
+                const posX = Number(stamp.x_percent || stamp.x || 50);
+                const posY = Number(stamp.y_percent || stamp.y || 50);
                 const isSelected = selectedStamp && (selectedStamp.id === stamp.id || selectedStamp === stamp);
+                
+                // 判断左右半屏
+                const isLeftHalf = posX < 50;
 
                 return (
                   <div
                     key={stamp.id || idx}
                     style={{ left: `${posX}%`, top: `${posY}%` }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 group z-20"
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-20 group"
                     onClick={(e) => {
-                      e.stopPropagation(); // ✋ 阻止冒泡到画幅，避免触发新增盖章！
-                      setActiveCoords(null); // 关闭新增弹窗
-                      setSelectedStamp(isSelected ? null : stamp); // 切换当前选中状态
+                      e.stopPropagation();
+                      setActiveCoords(null);
+                      setSelectedStamp(isSelected ? null : stamp);
                     }}
                   >
-                    {/* 戳记图标：扩大透明点击区域 (p-2.5) 方便移动端手指轻触 */}
-                    <div className="p-2.5 cursor-pointer">
-                      <div className={`w-7 h-7 rounded-full bg-[#a5c9ca]/90 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-xs font-mono transition-transform active:scale-125 ${isSelected ? 'scale-125 ring-2 ring-[#a5c9ca]' : 'animate-bounce'}`}>
+                    {/* 戳记花朵图标 */}
+                    <div className="p-2 cursor-pointer">
+                      <div className={`w-6 h-6 rounded-full bg-[#88abac]/90 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[11px] font-mono transition-transform active:scale-125 ${isSelected ? 'scale-125 ring-2 ring-[#88abac]' : 'hover:scale-110'}`}>
                         🌸
                       </div>
                     </div>
 
-                    {/* 评论详情弹窗：PC 端 Hover 或 手机端 Tap 均可显示 */}
+                    {/* 💻 仅桌面端显示的原位 hover/click 气泡（手机端在下方独立渲染，彻底离场） */}
                     <div 
-                      className={`absolute left-1/2 bottom-full mb-2 -translate-x-1/2 w-52 p-3 bg-zinc-900/95 text-white rounded-xl text-xs shadow-2xl z-30 transition-all duration-200 ${
-                        isSelected ? 'block scale-100 opacity-100 pointer-events-auto' : 'hidden group-hover:block'
-                      }`}
+                      className={`
+                        hidden sm:block absolute bottom-full mb-2 ${isLeftHalf ? 'left-0' : 'right-0'} w-64 p-4
+                        bg-white/85 backdrop-blur-md border border-white/70 shadow-2xl rounded-2xl text-zinc-800 text-xs
+                        transition-all duration-200 pointer-events-auto ${
+                          isSelected ? 'scale-100 opacity-100' : 'scale-95 opacity-0 group-hover:scale-100 group-hover:opacity-100'
+                        }
+                      `}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex items-center justify-between pb-1 border-b border-zinc-700/60 mb-1.5">
-                        <span className="font-semibold text-xs text-[#a5c9ca] truncate max-w-[120px]">
-                          {stamp.nickname || stamp.author || '月光下的鹿友'}
+                      <div className="flex items-center justify-between pb-1.5 border-b border-zinc-200/50 mb-2">
+                        <span className="font-semibold text-xs text-[#88abac] font-mono truncate max-w-[150px]">
+                          @{stamp.nickname || stamp.author || '月光下的鹿友'}
                         </span>
                         <button 
                           type="button" 
                           onClick={() => setSelectedStamp(null)} 
-                          className="text-zinc-400 hover:text-white text-xs px-1"
+                          className="text-zinc-400 hover:text-zinc-700 text-xs px-1"
                         >
                           ✕
                         </button>
                       </div>
-                      <p className="text-xs text-zinc-200 leading-relaxed break-words whitespace-pre-wrap">
+                      <p className="text-xs text-zinc-700 leading-relaxed break-words whitespace-pre-wrap font-sans">
                         {stamp.content}
                       </p>
                     </div>
@@ -330,84 +369,170 @@ export default function MagazineDetail() {
                 );
               })}
 
-              {/* 激活盖章时的精准原点指示 */}
+              {/* 激活盖章时的指示点 */}
               {activeCoords && (
                 <div
                   style={{ left: `${activeCoords.x}%`, top: `${activeCoords.y}%` }}
-                  className="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-rose-500/80 border-2 border-white shadow-lg flex items-center justify-center text-xs text-white z-30 animate-pulse pointer-events-none"
+                  className="absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-[#88abac] border-2 border-white shadow-lg flex items-center justify-center text-xs text-white z-30 animate-pulse pointer-events-none"
                 >
                   ✍️
                 </div>
               )}
+
+              {/* 💻 仅桌面端（sm: block）原位绝对定位卡片，根据点击坐标定位 */}
+              {activeCoords && (
+                <div 
+                  style={{
+                    left: `${Math.min(Math.max(Number(activeCoords.x), 20), 80)}%`,
+                    top: `${Math.min(Math.max(Number(activeCoords.y), 20), 80)}%`
+                  }}
+                  className="hidden sm:block absolute -translate-x-1/2 -translate-y-1/2 z-40 w-72 p-4 bg-white/85 backdrop-blur-md border border-white/70 shadow-2xl rounded-2xl transition-all animate-in fade-in zoom-in-95 duration-200"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <form onSubmit={handleStampSubmit}>
+                    <div className="flex items-center justify-between mb-2 pb-1 border-b border-zinc-200/50">
+                      <span className="text-[11px] font-mono text-[#88abac] font-semibold flex items-center gap-1">
+                        <span>🌸</span> 留下画幅戳记
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveCoords(null)}
+                        className="text-xs text-zinc-400 hover:text-zinc-700 transition"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    
+                    <div className="space-y-2 mb-3">
+                      <input
+                        type="text"
+                        placeholder="昵称 (可选)"
+                        value={nickname}
+                        onChange={(e) => setNickname(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white/60 backdrop-blur-sm border border-zinc-200/80 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#88abac]"
+                      />
+                      <textarea
+                        rows="2"
+                        placeholder="写下对这一帧的感想/弹幕..."
+                        value={content}
+                        onChange={(e) => setContent(e.target.value)}
+                        required
+                        autoFocus
+                        className="w-full px-2.5 py-1.5 bg-white/60 backdrop-blur-sm border border-zinc-200/80 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#88abac] resize-none"
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveCoords(null)}
+                        className="px-3 py-1 bg-zinc-100/80 hover:bg-zinc-200 text-zinc-600 text-xs font-mono rounded-lg transition"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={submitting}
+                        className="px-4 py-1 bg-[#88abac] hover:bg-[#a5c9ca] text-white text-xs font-mono rounded-lg shadow-sm disabled:opacity-50 transition"
+                      >
+                        {submitting ? '发送中' : '发射 🚀'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
+
             </div>
 
-            {/* 盖章输入浮框 */}
-            {activeCoords && (
-              <div 
-                style={{
-                  left: `${Math.min(Math.max(Number(activeCoords.x), 15), 85)}%`,
-                  top: `${Math.min(Math.max(Number(activeCoords.y), 15), 80)}%`
-                }}
-                className="absolute -translate-x-1/2 -translate-y-1/2 z-40 w-72 bg-white/95 backdrop-blur-md border border-zinc-200/90 rounded-2xl p-4 shadow-2xl transition-all animate-in fade-in zoom-in-95 duration-200"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <form onSubmit={handleStampSubmit}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-mono text-[#a5c9ca] font-semibold flex items-center gap-1">
-                      <span>🌸</span> 留下画幅戳记
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveCoords(null)}
-                      className="text-xs text-zinc-400 hover:text-zinc-700 transition"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-2 mb-3">
-                    <input
-                      type="text"
-                      placeholder="昵称 (可选)"
-                      value={nickname}
-                      onChange={(e) => setNickname(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca]"
-                    />
-                    <textarea
-                      rows="2"
-                      placeholder="写下对这一帧的感想/弹幕..."
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      required
-                      autoFocus
-                      className="w-full px-2.5 py-1.5 bg-zinc-50 border border-zinc-200 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#a5c9ca] resize-none"
-                    />
-                  </div>
-
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setActiveCoords(null)}
-                      className="px-3 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-600 text-xs font-mono rounded-lg transition"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className="px-4 py-1 bg-[#a5c9ca] hover:bg-[#94b8b9] text-white text-xs font-mono rounded-lg shadow-sm disabled:opacity-50 transition"
-                    >
-                      {submitting ? '发送中' : '发射 🚀'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
             <p className="mt-4 text-[11px] font-mono text-zinc-400">
-              💡 提示：点击画幅任意角落即可盖章，亦支持键盘 ⬅️ ➡️ 方向键翻页
+              💡 提示：点击画幅任意角落即可盖章，手机可左右滑动切页，亦支持键盘 ⬅️ ➡️ 方向键翻页
             </p>
 
+          </div>
+        )}
+
+        {/* 📱 📱 📱 手机专用浮层 (彻底独立放置于文档根，彻底斩断对图片容器的撑开与变形风险) 📱 📱 📱 */}
+
+        {/* 1. 📱 手机端：查看已选戳记 */}
+        {selectedStamp && (
+          <div 
+            className="sm:hidden fixed inset-x-4 bottom-6 z-[99] p-4 bg-white/85 backdrop-blur-md border border-white/80 shadow-2xl rounded-2xl animate-in slide-in-from-bottom-5 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-1.5 border-b border-zinc-200/50 mb-2">
+              <span className="font-semibold text-xs text-[#88abac] font-mono truncate max-w-[200px]">
+                @{selectedStamp.nickname || selectedStamp.author || '月光下的鹿友'}
+              </span>
+              <button 
+                type="button" 
+                onClick={() => setSelectedStamp(null)} 
+                className="text-zinc-400 hover:text-zinc-700 text-xs px-2 py-0.5"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-zinc-700 leading-relaxed break-words whitespace-pre-wrap font-sans my-1">
+              {selectedStamp.content}
+            </p>
+          </div>
+        )}
+
+        {/* 2. 📱 手机端：发射新戳记表单 */}
+        {activeCoords && (
+          <div 
+            className="sm:hidden fixed inset-x-4 bottom-6 z-[99] p-4 bg-white/85 backdrop-blur-md border border-white/80 shadow-2xl rounded-2xl animate-in slide-in-from-bottom-5 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <form onSubmit={handleStampSubmit}>
+              <div className="flex items-center justify-between mb-2 pb-1 border-b border-zinc-200/50">
+                <span className="text-[11px] font-mono text-[#88abac] font-semibold flex items-center gap-1">
+                  <span>🌸</span> 留下画幅戳记
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveCoords(null)}
+                  className="text-xs text-zinc-400 hover:text-zinc-700 transition"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="space-y-2 mb-3">
+                <input
+                  type="text"
+                  placeholder="昵称 (可选)"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-white/60 backdrop-blur-sm border border-zinc-200/80 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#88abac]"
+                />
+                <textarea
+                  rows="2"
+                  placeholder="写下对这一帧的感想/弹幕..."
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  required
+                  autoFocus
+                  className="w-full px-2.5 py-1.5 bg-white/60 backdrop-blur-sm border border-zinc-200/80 rounded-lg text-xs text-zinc-800 focus:outline-none focus:border-[#88abac] resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveCoords(null)}
+                  className="px-3 py-1 bg-zinc-100/80 hover:bg-zinc-200 text-zinc-600 text-xs font-mono rounded-lg transition"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-1 bg-[#88abac] hover:bg-[#a5c9ca] text-white text-xs font-mono rounded-lg shadow-sm disabled:opacity-50 transition"
+                >
+                  {submitting ? '发送中' : '发射 🚀'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 

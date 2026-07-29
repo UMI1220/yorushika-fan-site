@@ -40,9 +40,10 @@ export default function MagazineIndex() {
           </p>
           
           <div className="mt-6 flex justify-center">
+            {/* 切换为月光青 `#88abac` / `#a5c9ca` 风格 */}
             <Link
               href="/magazine/submit"
-              className="inline-flex items-center space-x-2 text-xs font-mono px-4 py-2 bg-zinc-900 text-white rounded-full hover:bg-zinc-800 transition"
+              className="inline-flex items-center space-x-2 text-xs font-mono px-5 py-2.5 bg-[#88abac] hover:bg-[#a5c9ca] text-white rounded-full transition shadow-sm"
             >
               <span>+ 投稿刊物</span>
             </Link>
@@ -60,7 +61,7 @@ export default function MagazineIndex() {
             <p className="text-xs font-mono text-zinc-400 mb-4">暂无已发布的电子刊物</p>
             <Link
               href="/magazine/submit"
-              className="text-xs font-mono text-[#a5c9ca] hover:underline"
+              className="text-xs font-mono text-[#88abac] hover:underline"
             >
               成为第一个投稿的鹿友 →
             </Link>
@@ -103,10 +104,10 @@ export default function MagazineIndex() {
                   {/* 文本内容区域 */}
                   <div className="p-6 flex-1 flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest uppercase block mb-2">
+                      <span className="text-[10px] font-mono text-[#88abac] tracking-widest uppercase block mb-2">
                         {mag.author ? `By ${mag.author}` : 'Yorushika Fan Club'} {mag.issue_number ? `· ${mag.issue_number}` : ''}
                       </span>
-                      <h2 className="text-sm font-serif font-medium text-zinc-900 mb-2 group-hover:text-teal-700 transition line-clamp-1">
+                      <h2 className="text-sm font-serif font-medium text-zinc-900 mb-2 group-hover:text-[#88abac] transition line-clamp-1">
                         {mag.title}
                       </h2>
                       <p className="text-xs text-zinc-500 font-light leading-relaxed line-clamp-2">
@@ -116,7 +117,7 @@ export default function MagazineIndex() {
 
                     <div className="mt-6 pt-4 border-t border-zinc-100 flex items-center justify-between text-xs font-mono text-zinc-400">
                       <span>在线阅读与弹幕戳记</span>
-                      <span className="text-[#a5c9ca] group-hover:translate-x-1 transition-transform">→</span>
+                      <span className="text-[#88abac] group-hover:translate-x-1 transition-transform">→</span>
                     </div>
                   </div>
                 </Link>

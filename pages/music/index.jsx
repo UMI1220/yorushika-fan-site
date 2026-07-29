@@ -44,6 +44,39 @@ export default function MusicPage() {
     }
   };
 
+  // 🗑️ 带密码验证的管理员删除功能
+  const handleDeleteTrack = async (e, trackId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const inputPassword = prompt('请输入管理员密码确认删除该歌曲：');
+    if (!inputPassword) return;
+
+    try {
+      const res = await fetch(`/api/delete?table=music&id=${trackId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': inputPassword,
+        },
+      });
+      const result = await res.json();
+
+      if (result.success) {
+        alert('歌曲已成功删除');
+        setTracks((prev) => prev.filter((t) => t.id !== trackId));
+        if (currentTrackIndex >= tracks.length - 1) {
+          setCurrentTrackIndex(0);
+        }
+      } else {
+        alert(`删除失败: ${result.error || '密码错误'}`);
+      }
+    } catch (err) {
+      console.error('删除歌曲请求失败:', err);
+      alert('网络请求失败，请稍后重试');
+    }
+  };
+
   // 提取所有不重复的专辑列表
   const allAlbums = ['ALL', ...Array.from(new Set(tracks.map((t) => t.album).filter(Boolean)))];
 
@@ -153,7 +186,7 @@ export default function MusicPage() {
             href="/music/submit"
             className="inline-flex items-center justify-center px-5 py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-mono tracking-wider shadow-sm transition-all"
           >
-            🎵 贡献新音轨 / MV
+            🎵 贡献/补充音乐信息
           </Link>
         </div>
 
@@ -192,7 +225,7 @@ export default function MusicPage() {
                 }}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-mono whitespace-nowrap border transition-all ${
                   selectedAlbum === album
-                    ? 'bg-zinc-900 text-white border-zinc-900'
+                    ? 'bg-[#88abac] text-white border-[#88abac]'
                     : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
                 }`}
               >
@@ -219,31 +252,45 @@ export default function MusicPage() {
               {/* 播放器卡片 */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm relative">
                 
-                {/* 视图模式切换按钮 (在有 MV 链接时展示) */}
-                {currentTrack?.mv_url && (
-                  <div className="flex justify-end mb-4 gap-2">
+                {/* 视图模式切换与管理员删除 */}
+                <div className="flex justify-between items-center mb-4">
+                  {/* 管理员删除按钮 */}
+                  {currentTrack && (
                     <button
-                      onClick={() => setViewMode('cover')}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
-                        viewMode === 'cover'
-                          ? 'bg-zinc-800 text-white border-zinc-800'
-                          : 'bg-zinc-50 text-zinc-500 border-zinc-200'
-                      }`}
+                      onClick={(e) => handleDeleteTrack(e, currentTrack.id)}
+                      className="text-xs text-zinc-300 hover:text-rose-500 hover:bg-rose-50 px-2 py-1 rounded transition"
+                      title="管理员删除当前歌曲"
                     >
-                      🖼️ 封面视图
+                      🗑️ 删除该曲
                     </button>
-                    <button
-                      onClick={() => setViewMode('mv')}
-                      className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
-                        viewMode === 'mv'
-                          ? 'bg-rose-500 text-white border-rose-500'
-                          : 'bg-zinc-50 text-zinc-500 border-zinc-200'
-                      }`}
-                    >
-                      🎬 MV 模式
-                    </button>
-                  </div>
-                )}
+                  )}
+
+                  {/* 视图模式切换按钮 (在有 MV 链接时展示) */}
+                  {currentTrack?.mv_url && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setViewMode('cover')}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
+                          viewMode === 'cover'
+                            ? 'bg-[#88abac] text-white border-[#88abac]'
+                            : 'bg-zinc-50 text-zinc-500 border-zinc-200'
+                        }`}
+                      >
+                        🖼️ 封面视图
+                      </button>
+                      <button
+                        onClick={() => setViewMode('mv')}
+                        className={`px-3 py-1 rounded-lg text-[11px] font-mono border transition-all ${
+                          viewMode === 'mv'
+                            ? 'bg-rose-500 text-white border-rose-500'
+                            : 'bg-zinc-50 text-zinc-500 border-zinc-200'
+                        }`}
+                      >
+                        🎬 MV 模式
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {/* 封面 / MV 区域 */}
                 {viewMode === 'mv' && currentTrack?.mv_url ? (
@@ -332,16 +379,16 @@ export default function MusicPage() {
 
               </div>
 
-              {/* 歌词区 */}
-              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm">
-                <div className="flex items-center justify-between border-b border-zinc-100 pb-4 mb-4">
+              {/* 歌词区 + 贡献者/补充贡献者标识 */}
+              <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-zinc-100 pb-4">
                   <span className="text-xs font-serif text-zinc-800 font-medium">📝 歌词文本</span>
                   <div className="flex gap-2 font-mono text-xs">
                     <button
                       onClick={() => setLyricTab('jp')}
                       className={`px-3 py-1 rounded-lg border transition-all ${
                         lyricTab === 'jp'
-                          ? 'bg-zinc-900 text-white border-zinc-900'
+                          ? 'bg-[#88abac] text-white border-[#88abac]'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
                       }`}
                     >
@@ -351,7 +398,7 @@ export default function MusicPage() {
                       onClick={() => setLyricTab('cn')}
                       className={`px-3 py-1 rounded-lg border transition-all ${
                         lyricTab === 'cn'
-                          ? 'bg-zinc-900 text-white border-zinc-900'
+                          ? 'bg-[#88abac] text-white border-[#88abac]'
                           : 'bg-zinc-50 text-zinc-500 border-zinc-200'
                       }`}
                     >
@@ -364,6 +411,20 @@ export default function MusicPage() {
                   {lyricTab === 'jp'
                     ? (currentTrack?.lyric_jp || currentTrack?.lyrics_jp || currentTrack?.lyrics || '暂无日文歌词')
                     : (currentTrack?.lyric_cn || currentTrack?.lyrics_cn || currentTrack?.lyrics_zh || currentTrack?.lyric_zh || '暂无中文歌词')}
+                </div>
+
+                {/* 贡献者与补充贡献者显示 */}
+                <div className="pt-3 border-t border-zinc-100/80 flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400 font-mono">
+                  <div>
+                    <span>🤝 贡献者：</span>
+                    <span className="text-zinc-600">{currentTrack?.contributor || '匿名鹿友'}</span>
+                  </div>
+                  {currentTrack?.supplement_contributor && (
+                    <div>
+                      <span>✍️ 补充贡献：</span>
+                      <span className="text-[#88abac] font-medium">{currentTrack.supplement_contributor}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -380,22 +441,24 @@ export default function MusicPage() {
 
                 <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                   {filteredTracks.map((track, idx) => (
-                    <button
+                    <div
                       key={track.id || idx}
-                      onClick={() => {
-                        setCurrentTrackIndex(idx);
-                        setIsPlaying(true);
-                        setTimeout(() => {
-                          if (audioRef.current) audioRef.current.play();
-                        }, 50);
-                      }}
                       className={`w-full text-left p-3 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
                         currentTrackIndex === idx
                           ? 'bg-[#88abac]/10 border-[#88abac] shadow-sm'
                           : 'bg-zinc-50/50 hover:bg-zinc-100/80 border-transparent'
                       }`}
                     >
-                      <div className="min-w-0 flex-1">
+                      <button
+                        onClick={() => {
+                          setCurrentTrackIndex(idx);
+                          setIsPlaying(true);
+                          setTimeout(() => {
+                            if (audioRef.current) audioRef.current.play();
+                          }, 50);
+                        }}
+                        className="min-w-0 flex-1 text-left"
+                      >
                         <p
                           className={`text-xs font-serif truncate ${
                             currentTrackIndex === idx
@@ -413,11 +476,21 @@ export default function MusicPage() {
                         <p className="text-[11px] text-zinc-400 truncate">
                           {track.artist} • 《{track.album}》
                         </p>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {currentTrackIndex === idx && isPlaying && (
+                          <span className="text-xs animate-pulse">🎵</span>
+                        )}
+                        <button
+                          onClick={(e) => handleDeleteTrack(e, track.id)}
+                          className="text-zinc-300 hover:text-rose-500 hover:bg-rose-50 p-1 rounded transition text-xs"
+                          title="删除此曲"
+                        >
+                          🗑️
+                        </button>
                       </div>
-                      {currentTrackIndex === idx && isPlaying && (
-                        <span className="text-xs animate-pulse">🎵</span>
-                      )}
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>

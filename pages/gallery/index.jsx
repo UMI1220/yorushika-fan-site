@@ -10,6 +10,9 @@ export default function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [selectedImg, setSelectedImg] = useState(null);
 
+  // 记录已被当前用户盖章的图片 ID（防重复盖章，只加不减）
+  const [stampedIds, setStampedIds] = useState({});
+
   // 获取 Supabase 中的画廊数据
   useEffect(() => {
     fetchGalleryData();
@@ -29,6 +32,86 @@ export default function GalleryPage() {
       console.error('获取画廊数据失败:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 👁️ 打开 Modal 并自动自增浏览量
+  const handleOpenModal = async (item) => {
+    setSelectedImg(item);
+
+    try {
+      const newViews = (item.views || 0) + 1;
+      
+      // 更新本地状态
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, views: newViews } : i))
+      );
+      setSelectedImg((prev) => (prev && prev.id === item.id ? { ...prev, views: newViews } : prev));
+
+      // 数据库更新
+      await supabase.from('gallery').update({ views: newViews }).eq('id', item.id);
+    } catch (err) {
+      console.error('更新浏览量失败:', err);
+    }
+  };
+
+  // 💙 盖章点赞（严格只加不减，点击后判定已盖章并拦截）
+  const handleStamp = async (e, item) => {
+    e.stopPropagation();
+
+    if (stampedIds[item.id]) return; // 已盖章则绝对不减少
+
+    try {
+      const newLikes = (item.likes || 0) + 1;
+
+      // 标记当前 item 已盖章
+      setStampedIds((prev) => ({ ...prev, [item.id]: true }));
+
+      // 本地状态 +1
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, likes: newLikes } : i))
+      );
+      if (selectedImg && selectedImg.id === item.id) {
+        setSelectedImg((prev) => ({ ...prev, likes: newLikes }));
+      }
+
+      // 数据库 +1
+      await supabase.from('gallery').update({ likes: newLikes }).eq('id', item.id);
+    } catch (err) {
+      console.error('盖章失败:', err);
+    }
+  };
+
+  // 🗑️ 带密码验证的管理员删除功能
+  const handleDelete = async (e, itemId) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const inputPassword = prompt('请输入管理员密码确认删除该画作：');
+    if (!inputPassword) return;
+
+    try {
+      const res = await fetch(`/api/delete?table=gallery&id=${itemId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': inputPassword,
+        },
+      });
+      const result = await res.json();
+
+      if (result.success) {
+        alert('删除成功');
+        setItems((prev) => prev.filter((item) => item.id !== itemId));
+        if (selectedImg && selectedImg.id === itemId) {
+          setSelectedImg(null);
+        }
+      } else {
+        alert(`删除失败: ${result.error || '密码错误'}`);
+      }
+    } catch (err) {
+      console.error('删除请求失败:', err);
+      alert('请求失败，请稍后重试');
     }
   };
 
@@ -104,7 +187,7 @@ export default function GalleryPage() {
               {filteredItems.map((item) => (
                 <div
                   key={item.id}
-                  onClick={() => setSelectedImg(item)}
+                  onClick={() => handleOpenModal(item)}
                   className="break-inside-avoid bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer group border border-zinc-100"
                 >
                   <div className="relative overflow-hidden">
@@ -122,11 +205,26 @@ export default function GalleryPage() {
                   </div>
 
                   <div className="p-4 bg-white">
-                    <h3 className="font-serif text-zinc-800 text-base font-medium tracking-wide">
-                      {item.title}
-                    </h3>
+                    <div className="flex justify-between items-start gap-2">
+                      <h3 className="font-serif text-zinc-800 text-base font-medium tracking-wide">
+                        {item.title}
+                      </h3>
+
+                      {/* 管理员删除按钮 */}
+                      <button
+                        onClick={(e) => handleDelete(e, item.id)}
+                        className="text-zinc-300 hover:text-rose-500 hover:bg-rose-50 p-1 rounded transition text-xs shrink-0"
+                        title="管理员删除"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+
                     <div className="flex justify-between items-center mt-2 text-xs text-zinc-400">
-                      <span>{item.artist}</span>
+                      <div className="flex items-center gap-3">
+                        <span>{item.artist}</span>
+                        <span className="text-[10px] font-mono">👁️ {item.views || 0} 💙 {item.likes || 0}</span>
+                      </div>
                       <span className="text-[#88abac] border border-[#88abac]/30 px-2 py-0.5 rounded text-[10px]">
                         {item.category}
                       </span>
@@ -189,16 +287,36 @@ export default function GalleryPage() {
                 )}
               </div>
 
-              <div className="pt-6 border-t border-zinc-100 flex justify-between items-center text-xs text-zinc-400">
-                <span>Yorushika Fan Gallery</span>
-                <a
-                  href={selectedImg.image_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#88abac] hover:underline"
-                >
-                  查看原图 ↗
-                </a>
+              {/* 底部数据与交互区域 */}
+              <div className="pt-6 border-t border-zinc-100 flex flex-col gap-3">
+                <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
+                  <span>👁️ {selectedImg.views || 0} 浏览 · 💙 {selectedImg.likes || 0} 印章</span>
+
+                  {/* 盖章按钮（只加不减，点击后禁用） */}
+                  <button
+                    onClick={(e) => handleStamp(e, selectedImg)}
+                    disabled={stampedIds[selectedImg.id]}
+                    className={`px-3 py-1 rounded-full text-xs font-mono transition ${
+                      stampedIds[selectedImg.id]
+                        ? 'bg-rose-50 text-rose-500 border border-rose-200 cursor-default'
+                        : 'bg-[#88abac] hover:bg-[#789b9c] text-white shadow-sm'
+                    }`}
+                  >
+                    {stampedIds[selectedImg.id] ? '💖 已盖章' : '💙 盖章 (+1)'}
+                  </button>
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-zinc-400">
+                  <span>Yorushika Fan Gallery</span>
+                  <a
+                    href={selectedImg.image_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[#88abac] hover:underline"
+                  >
+                    查看原图 ↗
+                  </a>
+                </div>
               </div>
             </div>
           </div>

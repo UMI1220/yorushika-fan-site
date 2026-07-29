@@ -70,12 +70,14 @@ export default function PostCreatePage() {
       // 写入数据库
       const { data, error } = await supabase.from('forum_posts').insert([
         {
-          title,
+          title: title.trim(),
           author: author.trim() || '匿名鹿友',
           category,
-          content,
+          content: content.trim(),
           image_url: imageUrl,
-          video_url: videoUrl.trim() || null, // 🆕 保存视频链接
+          video_url: videoUrl.trim() || null,
+          views: 0,
+          likes: 0,
         },
       ]).select();
 
