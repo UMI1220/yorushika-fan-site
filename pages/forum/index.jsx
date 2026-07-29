@@ -181,7 +181,7 @@ export default function ForumPage() {
               暂无讨论话题，快去发起一个吧~
             </div>
           ) : (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 sm:gap-6">
               {filteredPosts.map((post) => (
                 <div
                   key={post.id}

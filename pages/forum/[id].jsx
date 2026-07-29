@@ -49,9 +49,9 @@ export default function ForumDetailPage() {
         .update({ views: (postData.views || 0) + 1 })
         .eq('id', postId);
 
-      // 2. 核心修正：指定拉取 forum_comments 评论表！
+      // 2. 拉取 forum_comments 评论表
       const { data: commentsData, error: commentErr } = await supabase
-        .from('forum_comments') // 👈 数据库表名为 forum_comments
+        .from('forum_comments')
         .select('*')
         .eq('post_id', postId)
         .order('created_at', { ascending: true });
@@ -81,23 +81,24 @@ export default function ForumDetailPage() {
     }
   };
 
-  // 发表新评论（写入 forum_comments）
+  // 发表新评论
   const handleAddComment = async (e) => {
     e.preventDefault();
     if (!commentText.trim()) return;
 
     try {
       setSubmittingComment(true);
+
+      // 构建待写入数据（避免未配 likes 字段时抛错）
+      const newCommentData = {
+        post_id: id,
+        content: commentText.trim(),
+        author: commentAuthor.trim() || '匿名鹿友',
+      };
+
       const { data, error } = await supabase
-        .from('forum_comments') // 👈 写入 forum_comments
-        .insert([
-          {
-            post_id: id,
-            content: commentText.trim(),
-            author: commentAuthor.trim() || '匿名鹿友',
-            likes: 0,
-          },
-        ])
+        .from('forum_comments')
+        .insert([newCommentData])
         .select();
 
       if (error) throw error;
@@ -109,19 +110,18 @@ export default function ForumDetailPage() {
       }
     } catch (err) {
       console.error('评论发表失败:', err);
-      alert('评论发表失败');
+      alert(`评论发表失败: ${err.message || '请检查网络或表结构'}`);
     } finally {
       setSubmittingComment(false);
     }
   };
 
-  // 🗑️ 删除评论（接口指定 table=forum_comments）
+  // 🗑️ 删除评论
   const handleDeleteComment = async (commentId) => {
     const inputPassword = prompt('请输入管理员密码确认删除该评论：');
     if (!inputPassword) return;
 
     try {
-      // 👈 请求 query 明确带上 forum_comments
       const res = await fetch(`/api/delete?table=forum_comments&id=${commentId}`, {
         method: 'DELETE',
         headers: {
@@ -143,7 +143,7 @@ export default function ForumDetailPage() {
     }
   };
 
-  // 评论点赞盖章（写入 forum_comments）
+  // 评论点赞盖章
   const handleStampComment = async (comment) => {
     if (stampedCommentIds[comment.id]) return;
 
@@ -156,12 +156,59 @@ export default function ForumDetailPage() {
       );
 
       await supabase
-        .from('forum_comments') // 👈 写入 forum_comments
+        .from('forum_comments')
         .update({ likes: newLikes })
         .eq('id', comment.id);
     } catch (err) {
       console.error('评论盖章失败:', err);
     }
+  };
+
+  // 🎬 解析 B 站 / YouTube / 普通视频播放链接
+  const renderVideoPlayer = (url) => {
+    if (!url) return null;
+
+    // Bilibili 链接解析 (BV号)
+    const bvMatch = url.match(/BV[a-zA-Z0-9]+/);
+    if (bvMatch) {
+      return (
+        <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black/5 my-4">
+          <iframe
+            src={`//player.bilibili.com/player.html?bvid=${bvMatch[0]}&page=1&high_quality=1`}
+            scrolling="no"
+            border="0"
+            frameBorder="no"
+            framespacing="0"
+            allowFullScreen={true}
+            className="w-full h-full"
+          />
+        </div>
+      );
+    }
+
+    // YouTube 链接解析
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+    if (ytMatch) {
+      return (
+        <div className="w-full aspect-video rounded-2xl overflow-hidden bg-black/5 my-4">
+          <iframe
+            src={`https://www.youtube.com/embed/${ytMatch[1]}`}
+            title="YouTube video player"
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full"
+          />
+        </div>
+      );
+    }
+
+    // 普通 HTML5 视频 (MP4)
+    return (
+      <div className="w-full rounded-2xl overflow-hidden bg-black/5 my-4">
+        <video controls src={url} className="w-full max-h-[500px] object-contain" />
+      </div>
+    );
   };
 
   return (
@@ -209,6 +256,20 @@ export default function ForumDetailPage() {
                   </div>
                 </div>
 
+                {/* 🖼️ 恢复：帖子图片查看 */}
+                {post.image_url && (
+                  <div className="w-full rounded-2xl overflow-hidden bg-zinc-50 border border-zinc-100 my-4">
+                    <img
+                      src={post.image_url}
+                      alt={post.title}
+                      className="w-full max-h-[600px] object-contain mx-auto"
+                    />
+                  </div>
+                )}
+
+                {/* 📹 恢复：视频嵌入播放器 */}
+                {post.video_url && renderVideoPlayer(post.video_url)}
+
                 {/* 正文 */}
                 <div className="text-sm font-sans text-zinc-700 leading-relaxed whitespace-pre-wrap py-2">
                   {post.content}
@@ -230,7 +291,7 @@ export default function ForumDetailPage() {
                 </div>
               </div>
 
-              {/* 💬 评论区 (forum_comments) */}
+              {/* 💬 评论区 */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-zinc-100 shadow-sm space-y-6">
                 <h3 className="text-base font-serif text-zinc-800 font-medium border-b border-zinc-100 pb-4">
                   💬 鹿友讨论 ({comments.length})
@@ -244,6 +305,7 @@ export default function ForumDetailPage() {
                     value={commentText}
                     onChange={(e) => setCommentText(e.target.value)}
                     className="w-full px-4 py-3 rounded-2xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+                    required
                   />
 
                   <div className="flex items-center justify-between gap-4">
