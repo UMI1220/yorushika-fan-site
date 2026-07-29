@@ -8,14 +8,16 @@ import { supabase } from '../../lib/supabase';
 export default function MusicSubmitPage() {
   const router = useRouter();
 
-  // 贡献模式: 'new' (全新上传) | 'supplement' (补充现有歌曲)
+  // 模式切换: 'new' (新建) | 'supplement' (其他人补充) | 'edit' (原上传者修改)
   const [mode, setMode] = useState('new');
 
-  // 现有歌曲列表 (供补充模式选择)
+  // 歌曲选择与验证
   const [existingTracks, setExistingTracks] = useState([]);
   const [selectedTrackId, setSelectedTrackId] = useState('');
+  const [verifyName, setVerifyName] = useState(''); // 修改模式下校验贡献者昵称
+  const [isVerified, setIsVerified] = useState(false);
 
-  // 表单状态
+  // 表单字段
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('ヨルシカ');
   const [album, setAlbum] = useState('');
@@ -30,8 +32,8 @@ export default function MusicSubmitPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  // 挂载时拉取所有已存在音乐供补充选择
   useEffect(() => {
     fetchExistingTracks();
   }, []);
@@ -47,112 +49,203 @@ export default function MusicSubmitPage() {
         setExistingTracks(data);
       }
     } catch (err) {
-      console.error('获取现有歌曲列表失败:', err);
+      console.error('获取歌曲列表失败:', err);
     }
   };
 
-  // 选择补充特定歌曲时，自动回显现有数据
-  const handleSelectTrackToSupplement = (trackId) => {
-    setSelectedTrackId(trackId);
-    const target = existingTracks.find((t) => String(t.id) === String(trackId));
-    if (target) {
+  // 重置表单
+  const resetForm = () => {
+    setTitle('');
+    setArtist('ヨルシカ');
+    setAlbum('');
+    setMvUrl('');
+    setContributor('');
+    setSupplementContributor('');
+    setLyricJp('');
+    setLyricCn('');
+    setAudioFile(null);
+    setCoverFile(null);
+    setSelectedTrackId('');
+    setVerifyName('');
+    setIsVerified(false);
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  // 切换 Mode 时重置状态
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    resetForm();
+  };
+
+  // 校验贡献者昵称（修改模式 key）
+  const handleVerifyContributor = () => {
+    setErrorMsg('');
+    if (!selectedTrackId) {
+      setErrorMsg('请先选择要修改的歌曲');
+      return;
+    }
+    if (!verifyName.trim()) {
+      setErrorMsg('请输入你的贡献者昵称');
+      return;
+    }
+
+    const target = existingTracks.find((t) => String(t.id) === String(selectedTrackId));
+    if (!target) return;
+
+    const originalContrib = (target.contributor || '').trim();
+    const suppContrib = (target.supplement_contributor || '').trim();
+    const inputName = verifyName.trim();
+
+    // 校验昵称是否匹配原始贡献者或补充贡献者
+    if (inputName === originalContrib || (suppContrib && inputName === suppContrib)) {
+      setIsVerified(true);
+      setSuccessMsg('身份验证成功！你可以修改该歌曲的信息。');
+
+      // 自动填入已有数据供编辑
       setTitle(target.title || '');
       setArtist(target.artist || 'ヨルシカ');
       setAlbum(target.album || '');
       setMvUrl(target.mv_url || '');
-      setLyricJp(target.lyric_jp || target.lyrics_jp || target.lyrics || '');
-      setLyricCn(target.lyric_cn || target.lyrics_cn || target.lyrics_zh || target.lyric_zh || '');
+      setLyricJp(target.lyric_jp || '');
+      setLyricCn(target.lyric_cn || '');
+      setContributor(target.contributor || '');
+      setSupplementContributor(target.supplement_contributor || '');
+    } else {
+      setIsVerified(false);
+      setErrorMsg('昵称匹配失败！该歌曲并非由此昵称上传或补充。');
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (mode === 'new' && (!title.trim() || !audioFile)) {
-      setErrorMsg('新建音乐请务必填写曲名并上传音频文件 (.mp3)');
-      return;
-    }
-
-    if (mode === 'supplement' && !selectedTrackId) {
-      setErrorMsg('请先选择需要补充信息的歌曲');
-      return;
-    }
+    setErrorMsg('');
+    setSuccessMsg('');
 
     try {
       setSubmitting(true);
-      setErrorMsg('');
 
-      let audioPublicUrl = null;
-      let coverPublicUrl = null;
-
-      // 1. 若有上传新音频
-      if (audioFile) {
-        const audioExt = audioFile.name.split('.').pop();
-        const audioFileName = `track-${Date.now()}-${Math.random().toString(36).substring(2, 6)}.${audioExt}`;
-
-        const { error: audioErr } = await supabase.storage
-          .from('music')
-          .upload(audioFileName, audioFile, { upsert: true });
-
-        if (audioErr) throw new Error(`音频上传失败: ${audioErr.message}`);
-
-        const { data: audioPublic } = supabase.storage
-          .from('music')
-          .getPublicUrl(audioFileName);
-
-        audioPublicUrl = audioPublic.publicUrl;
-      }
-
-      // 2. 若有上传新封面
-      if (coverFile) {
-        const coverExt = coverFile.name.split('.').pop();
-        const coverFileName = `cover-${Date.now()}-${Math.random().toString(36).substring(2, 6)}.${coverExt}`;
-
-        const { error: coverErr } = await supabase.storage
-          .from('music')
-          .upload(coverFileName, coverFile, { upsert: true });
-
-        if (!coverErr) {
-          const { data: coverPublic } = supabase.storage
-            .from('music')
-            .getPublicUrl(coverFileName);
-          coverPublicUrl = coverPublic.publicUrl;
-        }
-      }
-
-      // 3. 执行写入操作
+      // ------------------------------------
+      // 模式 1：上传全新歌曲 (INSERT)
+      // ------------------------------------
       if (mode === 'new') {
-        // 新增逻辑
+        if (!title.trim() || !audioFile) {
+          setErrorMsg('请填写曲名并选择音频文件 (.mp3)');
+          setSubmitting(false);
+          return;
+        }
+
+        // 1. 上传音频
+        const audioExt = audioFile.name.split('.').pop();
+        const audioName = `track-${Date.now()}-${Math.random().toString(36).substring(2, 6)}.${audioExt}`;
+        const { error: audioErr } = await supabase.storage.from('music').upload(audioName, audioFile);
+        if (audioErr) throw audioErr;
+
+        const { data: audioPub } = supabase.storage.from('music').getPublicUrl(audioName);
+
+        // 2. 上传封面 (可选)
+        let coverUrl = null;
+        if (coverFile) {
+          const coverExt = coverFile.name.split('.').pop();
+          const coverName = `cover-${Date.now()}-${Math.random().toString(36).substring(2, 6)}.${coverExt}`;
+          const { error: coverErr } = await supabase.storage.from('music').upload(coverName, coverFile);
+          if (!coverErr) {
+            const { data: coverPub } = supabase.storage.from('music').getPublicUrl(coverName);
+            coverUrl = coverPub.publicUrl;
+          }
+        }
+
+        // 3. 写入数据库
         const { error: dbErr } = await supabase.from('music').insert([
           {
             title: title.trim(),
             artist: artist.trim() || 'ヨルシカ',
             album: album.trim() || 'Single',
-            audio_url: audioPublicUrl,
-            cover_url: coverPublicUrl,
+            audio_url: audioPub.publicUrl,
+            cover_url: coverUrl,
             mv_url: mvUrl.trim() || null,
-            lyric_jp: lyricJp.trim(),
-            lyric_cn: lyricCn.trim(),
+            lyric_jp: lyricJp.trim() || null,
+            lyric_cn: lyricCn.trim() || null,
             contributor: contributor.trim() || '匿名鹿友',
           },
         ]);
 
         if (dbErr) throw dbErr;
-      } else {
-        // 补充逻辑
-        const updateData = {
-          mv_url: mvUrl.trim() || null,
-          lyric_jp: lyricJp.trim(),
-          lyric_cn: lyricCn.trim(),
-          supplement_contributor: supplementContributor.trim() || '匿名鹿友',
-        };
+      }
 
-        if (audioPublicUrl) updateData.audio_url = audioPublicUrl;
-        if (coverPublicUrl) updateData.cover_url = coverPublicUrl;
+      // ------------------------------------
+      // 模式 2 & 3：补充 / 修改模式 (UPDATE)
+      // ------------------------------------
+      else {
+        if (!selectedTrackId) {
+          setErrorMsg('请选择歌曲');
+          setSubmitting(false);
+          return;
+        }
+
+        if (mode === 'edit' && !isVerified) {
+          setErrorMsg('请先完成贡献者身份验证！');
+          setSubmitting(false);
+          return;
+        }
+
+        const target = existingTracks.find((t) => String(t.id) === String(selectedTrackId));
+        const updates = {};
+
+        // 模式 3：原上传者修改模式（全量覆盖编辑）
+        if (mode === 'edit') {
+          updates.title = title.trim();
+          updates.artist = artist.trim();
+          updates.album = album.trim();
+          updates.mv_url = mvUrl.trim() || null;
+          updates.lyric_jp = lyricJp.trim() || null;
+          updates.lyric_cn = lyricCn.trim() || null;
+        } 
+        // 模式 2：他人补充模式（增量拼接/补充，防止覆盖）
+        else {
+          if (mvUrl.trim()) updates.mv_url = mvUrl.trim();
+
+          // 歌词补充：采用 追加/拼接 逻辑
+          if (lyricJp.trim() && lyricJp.trim() !== target.lyric_jp) {
+            updates.lyric_jp = target.lyric_jp
+              ? `${target.lyric_jp}\n\n--- 【补充/校对版本】 ---\n${lyricJp.trim()}`
+              : lyricJp.trim();
+          }
+          if (lyricCn.trim() && lyricCn.trim() !== target.lyric_cn) {
+            updates.lyric_cn = target.lyric_cn
+              ? `${target.lyric_cn}\n\n--- 【补充/校对版本】 ---\n${lyricCn.trim()}`
+              : lyricCn.trim();
+          }
+
+          if (supplementContributor.trim()) {
+            updates.supplement_contributor = supplementContributor.trim();
+          }
+        }
+
+        // 文件覆盖更新（如重新选择音频或封面）
+        if (audioFile) {
+          const audioExt = audioFile.name.split('.').pop();
+          const audioName = `track-${Date.now()}.${audioExt}`;
+          const { error: aErr } = await supabase.storage.from('music').upload(audioName, audioFile);
+          if (!aErr) {
+            const { data: aPub } = supabase.storage.from('music').getPublicUrl(audioName);
+            updates.audio_url = aPub.publicUrl;
+          }
+        }
+
+        if (coverFile) {
+          const coverExt = coverFile.name.split('.').pop();
+          const coverName = `cover-${Date.now()}.${coverExt}`;
+          const { error: cErr } = await supabase.storage.from('music').upload(coverName, coverFile);
+          if (!cErr) {
+            const { data: cPub } = supabase.storage.from('music').getPublicUrl(coverName);
+            updates.cover_url = cPub.publicUrl;
+          }
+        }
 
         const { error: updateErr } = await supabase
           .from('music')
-          .update(updateData)
+          .update(updates)
           .eq('id', selectedTrackId);
 
         if (updateErr) throw updateErr;
@@ -160,8 +253,8 @@ export default function MusicSubmitPage() {
 
       router.push('/music');
     } catch (err) {
-      console.error('贡献失败:', err);
-      setErrorMsg(err.message || '提交失败，请稍后重试');
+      console.error('提交失败:', err);
+      setErrorMsg(err.message || '提交失败，请重试');
     } finally {
       setSubmitting(false);
     }
@@ -170,7 +263,7 @@ export default function MusicSubmitPage() {
   return (
     <Layout>
       <Head>
-        <title>贡献/补充音频与MV | MUSIC | ヨルシカ FanSite</title>
+        <title>音乐贡献与修改 | MUSIC | ヨルシカ FanSite</title>
       </Head>
 
       <div className="min-h-screen bg-[#fafbfc] pt-24 pb-20 px-4 sm:px-8">
@@ -180,221 +273,250 @@ export default function MusicSubmitPage() {
             <Link href="/music" className="text-xs tracking-widest text-[#88abac] hover:underline">
               ← 返回音乐列表
             </Link>
-            <span className="text-xs text-zinc-400 font-serif">CONTRIBUTE MUSIC</span>
+            <span className="text-xs text-zinc-400 font-serif">MUSIC ARCHIVE</span>
           </div>
 
           <div className="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-zinc-100 space-y-6">
+            
             <div className="text-center mb-6">
               <h1 className="text-2xl sm:text-3xl font-serif text-zinc-800 tracking-widest mb-2">
-                贡献与补充音乐 / CONTRIBUTE
+                音乐贡献与修改 / CONTRIBUTE
               </h1>
-              <p className="text-xs font-serif italic text-[#88abac] tracking-wider">
-                「共同完善夜鹿的音乐角落」
+              <p className="text-xs font-serif italic text-zinc-400 tracking-wider">
+                共建夜鹿音乐档案馆
               </p>
             </div>
 
-            {/* 模式选择切换：全新上传 vs 补充信息 */}
-            <div className="grid grid-cols-2 gap-3 p-1.5 bg-zinc-100/80 rounded-xl">
+            {/* 3 Mode Tab 切换 */}
+            <div className="flex rounded-xl bg-zinc-100 p-1 font-mono text-[11px] sm:text-xs">
               <button
                 type="button"
-                onClick={() => {
-                  setMode('new');
-                  setErrorMsg('');
-                }}
-                className={`py-2.5 rounded-lg text-xs font-medium transition-all ${
-                  mode === 'new'
-                    ? 'bg-[#88abac] text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                onClick={() => handleModeChange('new')}
+                className={`flex-1 py-2 rounded-lg transition-all ${
+                  mode === 'new' ? 'bg-[#88abac] text-white shadow-sm' : 'text-zinc-600'
                 }`}
               >
-                🎵 上传全新歌曲
+                🎵 新增歌曲
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setMode('supplement');
-                  setErrorMsg('');
-                }}
-                className={`py-2.5 rounded-lg text-xs font-medium transition-all ${
-                  mode === 'supplement'
-                    ? 'bg-[#88abac] text-white shadow-sm'
-                    : 'text-zinc-600 hover:text-zinc-900'
+                onClick={() => handleModeChange('supplement')}
+                className={`flex-1 py-2 rounded-lg transition-all ${
+                  mode === 'supplement' ? 'bg-[#88abac] text-white shadow-sm' : 'text-zinc-600'
                 }`}
               >
-                ✍️ 补充现有歌曲信息
+                ✍️ 补充翻译/MV
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange('edit')}
+                className={`flex-1 py-2 rounded-lg transition-all ${
+                  mode === 'edit' ? 'bg-[#88abac] text-white shadow-sm' : 'text-zinc-600'
+                }`}
+              >
+                ✏️ 修改我的上传
               </button>
             </div>
 
             {errorMsg && (
-              <div className="p-4 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-xs">
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-100 text-rose-600 text-xs">
                 ⚠️ {errorMsg}
               </div>
             )}
+            {successMsg && (
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 text-xs">
+                ✅ {successMsg}
+              </div>
+            )}
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-5">
               
-              {/* 补充模式：下拉选择现有歌曲 */}
-              {mode === 'supplement' && (
-                <div className="p-4 bg-[#88abac]/5 border border-[#88abac]/20 rounded-xl space-y-2">
-                  <label className="block text-xs font-serif text-zinc-800 font-medium">
-                    选择要补充信息的歌曲 *
-                  </label>
-                  <select
-                    value={selectedTrackId}
-                    onChange={(e) => handleSelectTrackToSupplement(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] bg-white"
-                    required
+              {/* 选择歌曲（补充/修改模式） */}
+              {mode !== 'new' && (
+                <div className="p-4 rounded-xl bg-[#88abac]/10 border border-[#88abac]/20 space-y-3">
+                  <div>
+                    <label className="block text-xs font-serif text-zinc-700 font-medium mb-1.5">
+                      选择目标歌曲 *
+                    </label>
+                    <select
+                      value={selectedTrackId}
+                      onChange={(e) => {
+                        setSelectedTrackId(e.target.value);
+                        setIsVerified(false);
+                      }}
+                      className="w-full px-4 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] bg-white"
+                      required
+                    >
+                      <option value="">-- 请选择需要操作的歌曲 --</option>
+                      {existingTracks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.title} (贡献者: {t.contributor || '匿名'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* ✏️ 修改模式：身份校验控件 */}
+                  {mode === 'edit' && (
+                    <div className="pt-2 border-t border-zinc-200/60 space-y-2">
+                      <label className="block text-xs font-serif text-zinc-700">
+                        验证你的贡献者昵称 *
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="输入你上传该曲时填写的昵称"
+                          value={verifyName}
+                          onChange={(e) => setVerifyName(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleVerifyContributor}
+                          className="px-4 py-2 bg-zinc-800 text-white hover:bg-zinc-700 rounded-xl text-xs font-mono shrink-0"
+                        >
+                          验证身份
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 在修改模式未通过验证时隐藏下方表单 */}
+              {(mode !== 'edit' || isVerified) && (
+                <>
+                  <div>
+                    <label className="block text-xs font-serif text-zinc-700 mb-1.5">曲名 *</label>
+                    <input
+                      type="text"
+                      placeholder="如：花に風"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      disabled={mode === 'supplement'}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50"
+                      required
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">演奏者</label>
+                      <input
+                        type="text"
+                        value={artist}
+                        onChange={(e) => setArtist(e.target.value)}
+                        disabled={mode === 'supplement'}
+                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">所属专辑</label>
+                      <input
+                        type="text"
+                        placeholder="如：盗作"
+                        value={album}
+                        onChange={(e) => setAlbum(e.target.value)}
+                        disabled={mode === 'supplement'}
+                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-serif text-zinc-700 mb-1.5">MV 视频链接</label>
+                    <input
+                      type="text"
+                      placeholder="Bilibili / YouTube 视频链接"
+                      value={mvUrl}
+                      onChange={(e) => setMvUrl(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                    />
+                  </div>
+
+                  {/* 音频/封面 */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">
+                        {mode === 'new' ? '音频文件 (.mp3) *' : '替换音频 (可选)'}
+                      </label>
+                      <input
+                        type="file"
+                        accept="audio/*"
+                        onChange={(e) => setAudioFile(e.target.files[0])}
+                        className="w-full text-xs text-zinc-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-zinc-100"
+                        required={mode === 'new'}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">
+                        {mode === 'new' ? '专辑封面 (可选)' : '替换封面 (可选)'}
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCoverFile(e.target.files[0])}
+                        className="w-full text-xs text-zinc-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-zinc-100"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 歌词 */}
+                  <div>
+                    <label className="block text-xs font-serif text-zinc-700 mb-1.5">日文歌词</label>
+                    <textarea
+                      rows={3}
+                      value={lyricJp}
+                      onChange={(e) => setLyricJp(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-serif text-zinc-700 mb-1.5">中文翻译歌词</label>
+                    <textarea
+                      rows={3}
+                      value={lyricCn}
+                      onChange={(e) => setLyricCn(e.target.value)}
+                      className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+                    />
+                  </div>
+
+                  {/* 署名 */}
+                  {mode === 'new' && (
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">你的贡献者昵称</label>
+                      <input
+                        type="text"
+                        placeholder="默认：匿名鹿友"
+                        value={contributor}
+                        onChange={(e) => setContributor(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                      />
+                    </div>
+                  )}
+                  {mode === 'supplement' && (
+                    <div>
+                      <label className="block text-xs font-serif text-zinc-700 mb-1.5">补充贡献者昵称</label>
+                      <input
+                        type="text"
+                        placeholder="如：校对人昵称"
+                        value={supplementContributor}
+                        onChange={(e) => setSupplementContributor(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full py-3 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-medium tracking-widest transition-all shadow-sm"
                   >
-                    <option value="">-- 请选择歌曲 --</option>
-                    {existingTracks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.title} - {t.artist} 《{t.album}》
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-zinc-400">
-                    选择歌曲后将自动显示已有信息，你可以修改或补充歌词、MV、更清晰的音频等。
-                  </p>
-                </div>
+                    {submitting ? '提交保存中...' : '确认提交 / SUBMIT'}
+                  </button>
+                </>
               )}
-
-              {/* 歌曲基本信息 (新建模式必填，补充模式只读/预览) */}
-              <div>
-                <label className="block text-xs font-serif text-zinc-700 mb-2">
-                  曲名 / Song Title {mode === 'new' ? '*' : ''}
-                </label>
-                <input
-                  type="text"
-                  placeholder="如：花に風"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  disabled={mode === 'supplement'}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50 disabled:text-zinc-500"
-                  required={mode === 'new'}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">演唱/演奏者</label>
-                  <input
-                    type="text"
-                    value={artist}
-                    onChange={(e) => setArtist(e.target.value)}
-                    disabled={mode === 'supplement'}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50 disabled:text-zinc-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">所属专辑</label>
-                  <input
-                    type="text"
-                    placeholder="如：盗作"
-                    value={album}
-                    onChange={(e) => setAlbum(e.target.value)}
-                    disabled={mode === 'supplement'}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] disabled:bg-zinc-50 disabled:text-zinc-500"
-                  />
-                </div>
-              </div>
-
-              {/* MV 视频网页链接 */}
-              <div>
-                <label className="block text-xs font-serif text-zinc-700 mb-2">
-                  MV / 视频链接 (支持 Bilibili / YouTube 网址)
-                </label>
-                <input
-                  type="text"
-                  placeholder="如：https://www.bilibili.com/video/BV1xx411c7mD"
-                  value={mvUrl}
-                  onChange={(e) => setMvUrl(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac]"
-                />
-              </div>
-
-              {/* 文件上传 */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">
-                    音频文件 (.mp3) {mode === 'new' ? '*' : '(可选替换)'}
-                  </label>
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(e) => setAudioFile(e.target.files[0])}
-                    className="w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:bg-[#88abac]/10 file:text-[#88abac] hover:file:bg-[#88abac]/20"
-                    required={mode === 'new'}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">专辑/单曲封面 (可选)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setCoverFile(e.target.files[0])}
-                    className="w-full text-xs text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:bg-[#88abac]/10 file:text-[#88abac] hover:file:bg-[#88abac]/20"
-                  />
-                </div>
-              </div>
-
-              {/* 歌词区域 */}
-              <div>
-                <label className="block text-xs font-serif text-zinc-700 mb-2">日文原版歌词</label>
-                <textarea
-                  rows={4}
-                  placeholder="粘贴日文歌词..."
-                  value={lyricJp}
-                  onChange={(e) => setLyricJp(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-serif text-zinc-700 mb-2">中文翻译歌词</label>
-                <textarea
-                  rows={4}
-                  placeholder="粘贴中文翻译..."
-                  value={lyricCn}
-                  onChange={(e) => setLyricCn(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
-                />
-              </div>
-
-              {/* 贡献者昵称 */}
-              {mode === 'new' ? (
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">你的贡献者昵称</label>
-                  <input
-                    type="text"
-                    placeholder="默认：匿名鹿友"
-                    value={contributor}
-                    onChange={(e) => setContributor(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac]"
-                  />
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-xs font-serif text-zinc-700 mb-2">你的补充贡献者昵称</label>
-                  <input
-                    type="text"
-                    placeholder="默认：匿名鹿友"
-                    value={supplementContributor}
-                    onChange={(e) => setSupplementContributor(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac]"
-                  />
-                </div>
-              )}
-
-              {/* 月光青提交按钮 */}
-              <button
-                type="submit"
-                disabled={submitting}
-                className={`w-full py-3.5 rounded-xl text-white text-xs tracking-widest transition-all font-medium ${
-                  submitting ? 'bg-zinc-300 cursor-not-allowed' : 'bg-[#88abac] hover:bg-[#789b9c] shadow-sm hover:shadow-md'
-                }`}
-              >
-                {submitting ? '提交处理中...' : mode === 'new' ? '提交新音轨 / SUBMIT' : '提交补充信息 / UPDATE'}
-              </button>
 
             </form>
           </div>

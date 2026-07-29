@@ -1,90 +1,87 @@
+import { createClient } from '@supabase/supabase-js';
+
+// 声明运行环境为 Edge
 export const runtime = 'edge';
 
+// 允许删除的数据表白名单
+const ALLOWED_TABLES = [
+  'music',
+  'gallery',
+  'magazine',
+  'forum_posts',
+  'forum_comments',
+];
+
+// 初始化 Supabase Client (Edge 环境需用 process.env 获取环境变量)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 export default async function handler(req) {
-  const headers = {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'DELETE, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-password',
-  };
-
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers });
-  }
-
-  if (req.method !== 'DELETE' && req.method !== 'POST') {
+  // 1. 仅允许 DELETE 请求
+  if (req.method !== 'DELETE') {
     return new Response(
       JSON.stringify({ success: false, error: 'Method Not Allowed' }),
-      { status: 405, headers }
+      { status: 405, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // 2. 从 Request Headers 提取管理员密码
+  const adminPassword = req.headers.get('x-admin-password');
+  const TARGET_PASSWORD = process.env.ADMIN_PASSWORD || 'yorushika2024';
+
+  if (!adminPassword || adminPassword !== TARGET_PASSWORD) {
+    return new Response(
+      JSON.stringify({ success: false, error: '管理员密码错误，无法执行删除操作' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // 3. 解析 URL 中的 query 参数
+  const { searchParams } = new URL(req.url);
+  const table = searchParams.get('table');
+  const id = searchParams.get('id');
+
+  if (!table || !id) {
+    return new Response(
+      JSON.stringify({ success: false, error: '缺少必需参数: table 或 id' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  // 4. 白名单校验
+  if (!ALLOWED_TABLES.includes(table)) {
+    return new Response(
+      JSON.stringify({ success: false, error: `非法的数据表名称: ${table}` }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } }
     );
   }
 
   try {
-    const url = new URL(req.url);
-    let table = url.searchParams.get('table');
-    let id = url.searchParams.get('id');
+    // 5. 执行 Supabase 删除
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('id', id);
 
-    if (!table || !id) {
-      try {
-        const body = await req.json();
-        table = table || body.table;
-        id = id || body.id;
-      } catch (e) {}
-    }
-
-    if (!table || !id) {
+    if (error) {
       return new Response(
-        JSON.stringify({ success: false, error: '缺少必要参数：table 和 id' }),
-        { status: 400, headers }
+        JSON.stringify({ success: false, error: error.message }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
-
-    // 🔑 密码校验逻辑：如果是删除帖子(forum_posts)，校验 ADMIN_PASSWORD
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
-    const providedPassword = req.headers.get('x-admin-password');
-
-    if (table === 'forum_posts') {
-      if (providedPassword !== adminPassword) {
-        return new Response(
-          JSON.stringify({ success: false, error: '管理员密码不正确，无权删除此帖子' }),
-          { status: 401, headers }
-        );
-      }
-    }
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-
-    // 执行删除
-    const targetUrl = `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`;
-    const response = await fetch(targetUrl, {
-      method: 'DELETE',
-      headers: {
-        'apikey': supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return new Response(
-        JSON.stringify({ success: false, error: errorText || '删除操作失败' }),
-        { status: response.status, headers }
-      );
-    }
-
-    const deletedData = await response.json();
 
     return new Response(
-      JSON.stringify({ success: true, deletedData }),
-      { status: 200, headers }
+      JSON.stringify({
+        success: true,
+        message: `成功从 ${table} 表中删除 ID 为 ${id} 的记录`,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (err) {
     return new Response(
-      JSON.stringify({ success: false, error: err.message || '服务器内部错误' }),
-      { status: 500, headers }
+      JSON.stringify({ success: false, error: '服务器内部错误' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }
 }

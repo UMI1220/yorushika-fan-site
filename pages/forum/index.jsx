@@ -6,52 +6,81 @@ import { supabase } from '../../lib/supabase';
 
 export default function ForumPage() {
   const [posts, setPosts] = useState([]);
-  const [category, setCategory] = useState('ALL');
-  const [sortBy, setSortBy] = useState('latest'); // 'latest' | 'hot'
   const [loading, setLoading] = useState(true);
+  const [filterTag, setFilterTag] = useState('ALL');
+
+  // 防重复盖章状态
+  const [stampedIds, setStampedIds] = useState({});
+
+  // 快捷发帖 Modal 状态
+  const [showModal, setShowModal] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newAuthor, setNewAuthor] = useState('');
+  const [newCategory, setNewCategory] = useState('CHAT');
+  const [newContent, setNewContent] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchPosts();
-  }, [sortBy]);
+  }, []);
 
-  // 从 Supabase 获取帖子列表
+  // 拉取论坛帖子
   const fetchPosts = async () => {
     try {
       setLoading(true);
-      let query = supabase.from('forum_posts').select('*');
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-      // 📊 排序逻辑
-      if (sortBy === 'hot') {
-        query = query.order('likes', { ascending: false }).order('views', { ascending: false });
-      } else {
-        query = query.order('created_at', { ascending: false });
-      }
-
-      const { data, error } = await query;
       if (error) throw error;
       setPosts(data || []);
     } catch (err) {
-      console.error('获取帖子失败:', err);
+      console.error('获取帖子列表失败:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🗑️ 带有管理员密码验证的删帖函数
+  // 💙 帖子盖章点赞（只加不减）
+  const handleStamp = async (e, post) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (stampedIds[post.id]) return;
+
+    try {
+      const newLikes = (post.likes || 0) + 1;
+
+      // 标记本地已盖章
+      setStampedIds((prev) => ({ ...prev, [post.id]: true }));
+
+      // 更新本地 state
+      setPosts((prev) =>
+        prev.map((p) => (p.id === post.id ? { ...p, likes: newLikes } : p))
+      );
+
+      // 同步数据库
+      await supabase.from('forum_posts').update({ likes: newLikes }).eq('id', post.id);
+    } catch (err) {
+      console.error('盖章失败:', err);
+    }
+  };
+
+  // 🗑️ 管理员删除帖子
   const handleDeletePost = async (e, postId) => {
     e.preventDefault();
     e.stopPropagation();
 
-    // 🔑 验证密码机制
-    const inputPassword = prompt('请输入管理员删除密码：');
-    if (!inputPassword) return; // 取消或未输入
+    const inputPassword = prompt('请输入管理员密码确认删除该帖子：');
+    if (!inputPassword) return;
 
     try {
       const res = await fetch(`/api/delete?table=forum_posts&id=${postId}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-password': inputPassword, // 传递密码头部
+          'x-admin-password': inputPassword,
         },
       });
       const result = await res.json();
@@ -60,74 +89,105 @@ export default function ForumPage() {
         alert('帖子已成功删除');
         setPosts((prev) => prev.filter((p) => p.id !== postId));
       } else {
-        alert(`删除失败: ${result.error || '密码错误或无权限'}`);
+        alert(`删除失败: ${result.error || '密码错误'}`);
       }
     } catch (err) {
-      console.error('删除请求异常:', err);
-      alert('请求失败，请稍后重试');
+      console.error('删除帖子失败:', err);
+      alert('网络请求失败');
     }
   };
 
-  // 根据分类过滤帖子
-  const filteredPosts =
-    category === 'ALL' ? posts : posts.filter((p) => p.category === category);
+  // 提交发帖
+  const handleCreatePost = async (e) => {
+    e.preventDefault();
+    if (!newTitle.trim() || !newContent.trim()) {
+      alert('请填写标题与内容');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const { data, error } = await supabase
+        .from('forum_posts')
+        .insert([
+          {
+            title: newTitle.trim(),
+            content: newContent.trim(),
+            author: newAuthor.trim() || '匿名鹿友',
+            category: newCategory,
+            likes: 0,
+            views: 0,
+          },
+        ])
+        .select();
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        setPosts((prev) => [data[0], ...prev]);
+        setShowModal(false);
+        setNewTitle('');
+        setNewContent('');
+        setNewAuthor('');
+      }
+    } catch (err) {
+      console.error('发帖失败:', err);
+      alert('发帖失败，请稍后重试');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const categories = [
-    { key: 'ALL', name: '全部话题' },
-    { key: 'ABSTRACT', name: '🤪 抽象/二创' },
-    { key: 'ANALYSIS', name: '📖 歌词/考察' },
-    { key: 'MUSIC', name: '🎵 音乐讨论' },
-    { key: 'PILGRIMAGE', name: '🗺️ 巡礼交流' },
-    { key: 'CHAT', name: '☕ 闲聊茶室' },
+    { key: 'ALL', name: '全部交流 / ALL' },
+    { key: 'CHAT', name: '日常闲聊 / CHAT' },
+    { key: 'ANALYSIS', name: '曲解考察 / ANALYSIS' },
+    { key: 'EVENT', name: '线下巡演 / EVENT' },
   ];
 
-  const getCategoryBadge = (catKey) => {
-    switch (catKey) {
-      case 'ABSTRACT':
-        return <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200/60 px-2 py-0.5 rounded-full font-mono">🤪 抽象二创</span>;
-      case 'ANALYSIS':
-        return <span className="text-[10px] bg-teal-50 text-teal-700 border border-teal-200/60 px-2 py-0.5 rounded-full font-mono">📖 歌词考察</span>;
-      case 'MUSIC':
-        return <span className="text-[10px] bg-sky-50 text-sky-700 border border-sky-200/60 px-2 py-0.5 rounded-full font-mono">🎵 音乐讨论</span>;
-      case 'PILGRIMAGE':
-        return <span className="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-full font-mono">🗺️ 巡礼交流</span>;
-      default:
-        return <span className="text-[10px] bg-zinc-100 text-zinc-600 px-2 py-0.5 rounded-full font-mono">☕ 闲聊</span>;
-    }
-  };
+  const filteredPosts = filterTag === 'ALL'
+    ? posts
+    : posts.filter((p) => p.category === filterTag);
 
   return (
     <Layout>
       <Head>
-        <title>鹿友论坛 - Yorushika FanSite</title>
+        <title>鹿友论坛 | ヨルシカ FanSite</title>
       </Head>
 
-      <div className="max-w-5xl mx-auto px-4 py-8">
-        {/* 顶部标题与发帖按钮 */}
-        <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
-          <div>
-            <h1 className="text-xl font-serif text-zinc-800 font-medium">鹿友交流论坛</h1>
-            <p className="text-xs text-zinc-400 font-mono mt-1">讨论、考察与二次创作社区</p>
-          </div>
-          <Link
-            href="/forum/post"
-            className="px-4 py-2 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-mono transition shadow-sm"
-          >
-            ✏️ 发布新帖
-          </Link>
-        </div>
+      <div className="min-h-screen bg-[#fafbfc] pt-24 pb-20 px-4 sm:px-8">
+        <div className="max-w-5xl mx-auto">
+          
+          {/* 页头 */}
+          <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
+            <div className="text-center sm:text-left">
+              <h1 className="text-3xl font-serif text-zinc-800 tracking-widest mb-2">
+                鹿友广场 / FORUM
+              </h1>
+              <p className="text-xs font-serif italic text-[#88abac] tracking-wider">
+                「月光下的讨论与共鸣」
+              </p>
+            </div>
 
-        {/* 🎨 分类选择与 📊 排序切换 */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-none">
+            <button
+              onClick={() => setShowModal(true)}
+              className="px-6 py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-full text-xs tracking-widest shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 font-medium"
+            >
+              <span>✍️</span>
+              <span>发布新帖</span>
+            </button>
+          </div>
+
+          {/* 分类筛选 */}
+          <div className="flex flex-wrap gap-2.5 mb-8">
             {categories.map((cat) => (
               <button
                 key={cat.key}
-                onClick={() => setCategory(cat.key)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-mono whitespace-nowrap transition-all shadow-sm ${
-                  category === cat.key
-                    ? 'bg-[#88abac] text-white font-medium shadow-[#88abac]/20 shadow-md'
-                    : 'bg-zinc-100/80 text-zinc-500 hover:bg-zinc-200/70'
+                onClick={() => setFilterTag(cat.key)}
+                className={`px-4 py-2 rounded-full text-xs tracking-wider transition-all ${
+                  filterTag === cat.key
+                    ? 'bg-[#88abac] text-white shadow-sm'
+                    : 'bg-white text-zinc-600 hover:bg-zinc-100 border border-zinc-200/80'
                 }`}
               >
                 {cat.name}
@@ -135,93 +195,157 @@ export default function ForumPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-1 bg-zinc-100 p-1 rounded-xl self-start sm:self-auto text-xs font-mono">
-            <button
-              onClick={() => setSortBy('latest')}
-              className={`px-3 py-1 rounded-lg transition ${
-                sortBy === 'latest' ? 'bg-white text-zinc-800 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-600'
-              }`}
-            >
-              🕒 最新
-            </button>
-            <button
-              onClick={() => setSortBy('hot')}
-              className={`px-3 py-1 rounded-lg transition ${
-                sortBy === 'hot' ? 'bg-white text-rose-600 font-bold shadow-sm' : 'text-zinc-400 hover:text-zinc-600'
-              }`}
-            >
-              🔥 最热
-            </button>
-          </div>
-        </div>
-
-        {/* 📱 帖子卡片双列/瀑布流布局 */}
-        {loading ? (
-          <div className="text-center py-20 text-xs font-mono text-zinc-400">加载论坛话题中...</div>
-        ) : filteredPosts.length === 0 ? (
-          <div className="text-center py-20 text-xs font-mono text-zinc-400">暂无相关话题</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {filteredPosts.map((post) => (
-              <Link
-                key={post.id}
-                href={`/forum/${post.id}`}
-                className="flex flex-col justify-between bg-white border border-zinc-100 hover:border-zinc-300 rounded-2xl overflow-hidden transition shadow-sm hover:shadow-md group relative"
-              >
-                <div>
-                  {/* 图片直观大图预览 */}
-                  {post.image_url && (
-                    <div className="w-full h-44 overflow-hidden bg-zinc-100 border-b border-zinc-50 relative">
-                      <img
-                        src={post.image_url}
-                        alt="预览图"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    </div>
-                  )}
-
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <h2 className="text-sm font-serif font-medium text-zinc-800 group-hover:text-[#88abac] transition-colors line-clamp-2 leading-snug">
+          {/* 帖子列表 */}
+          {loading ? (
+            <div className="text-center py-20 text-xs font-mono text-zinc-400">
+              加载论坛交流中...
+            </div>
+          ) : filteredPosts.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-zinc-100 text-xs text-zinc-400 font-serif">
+              暂无该分类下的讨论
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="bg-white rounded-2xl p-5 sm:p-6 border border-zinc-100 hover:border-zinc-300 transition-all shadow-sm hover:shadow-md relative group"
+                >
+                  <Link href={`/forum/${post.id}`} className="block">
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <h2 className="text-base sm:text-lg font-serif font-medium text-zinc-800 group-hover:text-[#88abac] transition-colors line-clamp-1">
                         {post.title}
                       </h2>
-                      {getCategoryBadge(post.category)}
+                      <span className="text-[10px] font-mono bg-zinc-100 text-zinc-500 px-2.5 py-0.5 rounded-full shrink-0">
+                        {post.category || 'CHAT'}
+                      </span>
                     </div>
 
-                    <p className="text-xs text-zinc-500 line-clamp-2 leading-relaxed font-sans mb-3">
+                    <p className="text-xs text-zinc-500 line-clamp-2 leading-relaxed mb-4 font-sans">
                       {post.content}
                     </p>
+                  </Link>
+
+                  <div className="flex items-center justify-between text-xs text-zinc-400 font-mono pt-3 border-t border-zinc-50">
+                    <div className="flex items-center gap-4">
+                      <span>👤 {post.author || '匿名鹿友'}</span>
+                      <span>👁️ {post.views || 0}</span>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* 盖章按钮 */}
+                      <button
+                        onClick={(e) => handleStamp(e, post)}
+                        disabled={stampedIds[post.id]}
+                        className={`px-2.5 py-1 rounded-lg text-xs transition ${
+                          stampedIds[post.id]
+                            ? 'bg-rose-50 text-rose-500 cursor-default'
+                            : 'bg-zinc-100 hover:bg-[#88abac] hover:text-white text-zinc-600'
+                        }`}
+                      >
+                        {stampedIds[post.id] ? '💖 已盖章' : `💙 印章 (${post.likes || 0})`}
+                      </button>
+
+                      {/* 删除按钮 */}
+                      <button
+                        onClick={(e) => handleDeletePost(e, post.id)}
+                        className="text-zinc-300 hover:text-rose-500 p-1 transition"
+                        title="删除帖子"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </div>
+              ))}
+            </div>
+          )}
 
-                <div className="px-4 pb-4 pt-2 border-t border-zinc-50 flex items-center justify-between text-[11px] font-mono text-zinc-400">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="text-zinc-600 truncate max-w-[90px]">👤 {post.author || '匿名鹿友'}</span>
-                    {post.video_url && (
-                      <span className="text-rose-500 bg-rose-50 px-1 py-0.2 rounded text-[9px] font-sans">
-                        🎬 视频
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    <span>👁️ {post.views || 0}</span>
-                    <span className="text-teal-600/90 font-medium">💙 {post.likes || 0}</span>
-
-                    <button
-                      onClick={(e) => handleDeletePost(e, post.id)}
-                      className="text-zinc-300 hover:text-rose-500 hover:bg-rose-50 p-0.5 rounded transition text-xs ml-1"
-                      title="管理员删除此帖"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
+        </div>
       </div>
+
+      {/* 发帖 Modal 弹窗 */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <h3 className="text-lg font-serif text-zinc-800 font-medium">发布新论题</h3>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePost} className="space-y-4">
+              <div>
+                <label className="block text-xs font-serif text-zinc-700 mb-1.5">标题 *</label>
+                <input
+                  type="text"
+                  placeholder="请输入交流标题..."
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-serif text-zinc-700 mb-1.5">分类</label>
+                  <select
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] bg-white"
+                  >
+                    <option value="CHAT">日常闲聊</option>
+                    <option value="ANALYSIS">曲解考察</option>
+                    <option value="EVENT">线下巡演</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-serif text-zinc-700 mb-1.5">发布者昵称</label>
+                  <input
+                    type="text"
+                    placeholder="默认：匿名鹿友"
+                    value={newAuthor}
+                    onChange={(e) => setNewAuthor(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-serif text-zinc-700 mb-1.5">详细讨论内容 *</label>
+                <textarea
+                  rows={5}
+                  placeholder="写下你的想法与解读..."
+                  value={newContent}
+                  onChange={(e) => setNewContent(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-xs focus:outline-none focus:border-[#88abac] resize-none"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-3 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-xl text-xs font-medium tracking-widest shadow-sm transition-all"
+              >
+                {submitting ? '发布中...' : '确认发布 / POST'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
     </Layout>
   );
 }
