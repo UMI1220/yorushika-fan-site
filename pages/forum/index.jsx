@@ -281,7 +281,7 @@ export default function ForumPage() {
                       onClick={() => setShowColDropdown(false)} 
                     />
 
-                    <div className="absolute left-0 mt-2 w-28 sm:w-32 bg-white border border-zinc-100 rounded-2xl shadow-xl z-30 py-1 font-mono text-xs overflow-hidden">
+                    <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-28 sm:w-32 bg-white border border-zinc-100 rounded-2xl shadow-xl z-30 py-1 font-mono text-xs overflow-hidden">
                       {[1, 2, 3, 4].map((num) => (
                         <button
                           key={num}
