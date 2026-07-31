@@ -187,6 +187,7 @@ export default function PostCreatePage() {
                   className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs focus:outline-none focus:border-[#88abac]"
                 >
                   <option value="COVER">🎤 翻唱/演奏</option>
+                  <option value="ANNOUNCEMENT">📢 官方公告</option>
                   <option value="ABSTRACT">🤪 抽象/二创</option>
                   <option value="ANALYSIS">📖 歌词/剧情考察</option>
                   <option value="MUSIC">🎵 音乐/编曲讨论</option>

@@ -11,9 +11,15 @@ export default function ForumPage() {
   // 排序状态
   const [sortBy, setSortBy] = useState('latest'); 
 
-  // 🎯 用户自选列数状态（默认 2 列）
-  const [gridCols, setGridCols] = useState(2);
-  // 控制列数选择下拉菜单
+  // 🎯 用户自选列数状态
+  const [gridCols, setGridCols] = useState(() => {
+      if (typeof window !== 'undefined') {
+         const savedCols = localStorage.getItem('forum_grid_cols');
+         return savedCols ? Number(savedCols) : 2;
+      }
+      return 2;
+    });
+ // 控制列数选择下拉菜单
   const [showColDropdown, setShowColDropdown] = useState(false);
 
   useEffect(() => {
@@ -33,7 +39,8 @@ export default function ForumPage() {
       setLoading(false);
     }
   };
-const handleDeletePost = async (e, postId) => {
+
+  const handleDeletePost = async (e, postId) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -61,6 +68,36 @@ const handleDeletePost = async (e, postId) => {
     }
   };
 
+  /* ================= 🌟【插槽 1：新增 handlePinPost 置顶处理函数】================= */
+  const handlePinPost = async (e, postId, isCurrentlyPinned) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const actionText = isCurrentlyPinned ? '取消置顶' : '置顶';
+    const password = prompt(`请输入管理员密码以 ${actionText} 该帖子：`);
+    if (!password) return;
+
+    try {
+      const res = await fetch('/api/forum/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId, password }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        alert(data.message);
+        fetchPosts();
+      } else {
+        alert(data.error || '操作失败');
+      }
+    } catch (err) {
+      console.error('置顶请求失败:', err);
+      alert('网络请求失败，请稍后重试');
+    }
+  };
+  /* ============================================================================== */
+
   // 计算印章总数
   const getTotalStamps = (post) => {
     if (!post) return 0;
@@ -80,7 +117,8 @@ const handleDeletePost = async (e, postId) => {
   };
 
   const categories = [
-    { key: 'ALL', label: '全部话题', icon: '' },
+    { key: 'ALL', label: '全部话题', icon: '🌐' },
+    { key: 'ANNOUNCEMENT', label: ' 官方公告' , icon: '📢' },
     { key: 'COVER', label: '翻唱/演奏', icon: '🎤' },
     { key: 'ABSTRACT', label: '抽象/二创', icon: '🤪' },
     { key: 'ANALYSIS', label: '歌词/剧情考察', icon: '📖' },
@@ -210,6 +248,9 @@ const handleDeletePost = async (e, postId) => {
                           key={num}
                           onClick={() => {
                             setGridCols(num);
+                            if (typeof window !== 'undefined') {
+                               localStorage.setItem('forum_grid_cols', num); // 💾 保存到本地存储
+                            }
                             setShowColDropdown(false);
                           }}
                           className={`w-full px-3 py-2 text-left flex items-center justify-between transition ${
@@ -302,13 +343,28 @@ const handleDeletePost = async (e, postId) => {
                         <span className="truncate max-w-[120px] sm:max-w-[150px] text-zinc-600 font-medium">
                           👤 {post.author || '匿名鹿友'}
                         </span>
-                        <button
-                          onClick={(e) => handleDeletePost(e, post.id)}
-                          className="text-zinc-300 hover:text-rose-500 p-0.5 transition"
-                          title="删除帖子"
-                        >
-                          🗑️
-                        </button>
+
+                        {/* 按钮组 */}
+                        <div className="flex items-center gap-2">
+                          {/* 🌟【插槽 2：新增 📌 置顶按钮】 */}
+                          <button
+                            onClick={(e) => handlePinPost(e, post.id, post.is_pinned)}
+                            className={`p-0.5 transition hover:scale-110 ${
+                              post.is_pinned ? 'text-[#88abac]' : 'text-zinc-300 hover:text-[#88abac]'
+                            }`}
+                            title={post.is_pinned ? '取消置顶' : '置顶帖子'}
+                          >
+                            📌
+                          </button>
+
+                          <button
+                            onClick={(e) => handleDeletePost(e, post.id)}
+                            className="text-zinc-300 hover:text-rose-500 p-0.5 transition"
+                            title="删除帖子"
+                          >
+                            🗑️
+                          </button>
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-between pt-1 border-t border-zinc-50/80">
