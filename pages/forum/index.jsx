@@ -13,24 +13,43 @@ export default function ForumPage() {
 
   // 🎯 用户自选列数状态
   const [gridCols, setGridCols] = useState(() => {
-      if (typeof window !== 'undefined') {
-         const savedCols = localStorage.getItem('forum_grid_cols');
-         return savedCols ? Number(savedCols) : 2;
-      }
-      return 2;
-    });
- // 控制列数选择下拉菜单
+    if (typeof window !== 'undefined') {
+       const savedCols = localStorage.getItem('forum_grid_cols');
+       return savedCols ? Number(savedCols) : 2;
+    }
+    return 2;
+  });
+  // 控制列数选择下拉菜单
   const [showColDropdown, setShowColDropdown] = useState(false);
 
+  /* ================= 🌟【插入段 1：搜索状态与防抖定时器】================= */
+  const [searchTerm, setSearchTerm] = useState('');          // 输入框实时内容
+  const [debouncedSearch, setDebouncedSearch] = useState('');  // 防抖后的实际搜索词
+
+  // 🎯 防抖定时器：用户停止输入 300ms 后才触发实际搜索
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(timer); // 清除上一次未执行的定时器
+  }, [searchTerm]);
+  /* ========================================================================= */
+
+  /* ================= 🌟【插入段 2：更新监听与 fetchPosts 搜索逻辑】================= */
   useEffect(() => {
     fetchPosts();
-  }, [sortBy, activeCategory]);
+  }, [sortBy, activeCategory, debouncedSearch]);
 
   const fetchPosts = async () => {
     try {
       setLoading(true);
       const categoryParam = activeCategory !== 'ALL' ? `&category=${activeCategory}` : '';
-      const res = await fetch(`/api/forum/list?sortBy=${sortBy}${categoryParam}`);
+      const searchParam = debouncedSearch.trim() 
+        ? `&search=${encodeURIComponent(debouncedSearch.trim())}` 
+        : '';
+
+      const res = await fetch(`/api/forum/list?sortBy=${sortBy}${categoryParam}${searchParam}`);
       const data = await res.json();
       setPosts(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -39,6 +58,7 @@ export default function ForumPage() {
       setLoading(false);
     }
   };
+  /* ========================================================================= */
 
   const handleDeletePost = async (e, postId) => {
     e.preventDefault();
@@ -68,7 +88,7 @@ export default function ForumPage() {
     }
   };
 
-  /* ================= 🌟【插槽 1：新增 handlePinPost 置顶处理函数】================= */
+  /* ================= 🌟【handlePinPost 置顶处理函数】================= */
   const handlePinPost = async (e, postId, isCurrentlyPinned) => {
     e.preventDefault();
     e.stopPropagation();
@@ -133,7 +153,6 @@ export default function ForumPage() {
         <title>鹿友交流论坛 | ヨルシカ FanSite</title>
       </Head>
 
-      {/* 🎯 修改1：加上 overflow-x-hidden 防止出现右侧黑边 */}
       <div className="min-h-screen bg-[#fafbfc] pt-20 sm:pt-24 pb-20 px-3 sm:px-8 overflow-x-hidden">
         <div className="w-full max-w-none mx-auto space-y-6 sm:space-y-8">
           
@@ -156,6 +175,26 @@ export default function ForumPage() {
               <span>发帖</span>
             </Link>
           </div>
+
+          {/* ================= 🌟【插入段 3：实时搜索框 UI】================= */}
+          <div className="relative w-full max-w-md">
+            <input
+              type="text"
+              placeholder="🔍 搜索标题、正文、作者..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full px-4 py-2 sm:py-2.5 pl-9 bg-white border border-zinc-200/80 rounded-2xl text-xs focus:outline-none focus:border-[#88abac] shadow-sm transition placeholder:text-zinc-400"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-zinc-600 transition"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {/* ========================================================================= */}
 
           {/* 筛选与排序工具栏 */}
           <div className="flex flex-col gap-3">
@@ -242,7 +281,7 @@ export default function ForumPage() {
                       onClick={() => setShowColDropdown(false)} 
                     />
 
-                    <div className="absolute right-0 mt-2 w-28 sm:w-32 bg-white border border-zinc-100 rounded-2xl shadow-xl z-30 py-1 font-mono text-xs overflow-hidden">
+                    <div className="absolute left-0 mt-2 w-28 sm:w-32 bg-white border border-zinc-100 rounded-2xl shadow-xl z-30 py-1 font-mono text-xs overflow-hidden">
                       {[1, 2, 3, 4].map((num) => (
                         <button
                           key={num}
@@ -346,7 +385,6 @@ export default function ForumPage() {
 
                         {/* 按钮组 */}
                         <div className="flex items-center gap-2">
-                          {/* 🌟【插槽 2：新增 📌 置顶按钮】 */}
                           <button
                             onClick={(e) => handlePinPost(e, post.id, post.is_pinned)}
                             className={`p-0.5 transition hover:scale-110 ${
