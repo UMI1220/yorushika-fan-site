@@ -25,6 +25,7 @@ export default function MagazineDetail() {
   const [submitting, setSubmitting] = useState(false);
 
   const readerAreaRef = useRef(null);
+  const longPressTimerRef = useRef(null);
 
   // 📱 手机端触摸滑动坐标记录
   const touchStartX = useRef(0);
@@ -311,7 +312,7 @@ export default function MagazineDetail() {
                 className="w-full h-auto object-contain block rounded-xl"
               />
 
-              {/* 渲染已有戳记图标 */}
+              {/* 渲染已有戳记图标：原本大小不透明度 + PC右键拖拽 / 手机长按拖拽松开弹回 */}
               {currentPageStamps.map((stamp, idx) => {
                 const posX = Number(stamp.x_percent || stamp.x || 50);
                 const posY = Number(stamp.y_percent || stamp.y || 50);
@@ -324,21 +325,108 @@ export default function MagazineDetail() {
                   <div
                     key={stamp.id || idx}
                     style={{ left: `${posX}%`, top: `${posY}%` }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 z-20 group"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveCoords(null);
-                      setSelectedStamp(isSelected ? null : stamp);
-                    }}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 z-20 group touch-none"
                   >
-                    {/* 戳记花朵图标 */}
-                    <div className="p-2 cursor-pointer">
-                      <div className={`w-6 h-6 rounded-full bg-[#88abac]/90 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[11px] font-mono transition-transform active:scale-125 ${isSelected ? 'scale-125 ring-2 ring-[#88abac]' : 'hover:scale-110'}`}>
+                    <div
+                      style={{
+                        transform: `translate(${stamp._dragOffset?.x || 0}px, ${stamp._dragOffset?.y || 0}px)`,
+                        transition: stamp._isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                      }}
+                      className="p-2 cursor-pointer select-none"
+                      onContextMenu={(e) => e.preventDefault()} // 阻止右键默认菜单
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        const targetElement = e.currentTarget;
+
+                        // 判别：是否为 PC 右键拖拽 (button === 2)
+                        const isRightClick = e.button === 2;
+
+                        const startDragging = () => {
+                          try {
+                            targetElement.setPointerCapture(e.pointerId);
+                          } catch (err) {}
+                          setStamps((prev) =>
+                            prev.map((s) => (s === stamp || s.id === stamp.id ? { ...s, _isDragging: true } : s))
+                          );
+                        };
+
+                        // 📱 手机端触摸长按 200ms 触发拖拽，PC端右键直接触发
+                        if (isRightClick) {
+                          startDragging();
+                        } else if (e.pointerType === 'touch') {
+                          longPressTimerRef.current = setTimeout(() => {
+                            startDragging();
+                          }, 200);
+                        }
+
+                        const handlePointerMove = (moveEvent) => {
+                          const deltaX = moveEvent.clientX - startX;
+                          const deltaY = moveEvent.clientY - startY;
+
+                          // 如果移动距离超过 5px 且还没触发拖拽，取消长按定时器
+                          if (Math.hypot(deltaX, deltaY) > 5 && !stamp._isDragging) {
+                            if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                          }
+
+                          setStamps((prev) => {
+                            const cur = prev.find((s) => s === stamp || s.id === stamp.id);
+                            if (cur && cur._isDragging) {
+                              return prev.map((s) =>
+                                s === stamp || s.id === stamp.id
+                                  ? { ...s, _dragOffset: { x: deltaX, y: deltaY } }
+                                  : s
+                              );
+                            }
+                            return prev;
+                          });
+                        };
+
+                        const handlePointerUp = (upEvent) => {
+                          if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+
+                          setStamps((prev) =>
+                            prev.map((s) =>
+                              s === stamp || s.id === stamp.id
+                                ? { ...s, _isDragging: false, _dragOffset: { x: 0, y: 0 } }
+                                : s
+                            )
+                          );
+
+                          try {
+                            if (targetElement.hasPointerCapture(upEvent.pointerId)) {
+                              targetElement.releasePointerCapture(upEvent.pointerId);
+                            }
+                          } catch (err) {}
+
+                          window.removeEventListener('pointermove', handlePointerMove);
+                          window.removeEventListener('pointerup', handlePointerUp);
+                        };
+
+                        window.addEventListener('pointermove', handlePointerMove);
+                        window.addEventListener('pointerup', handlePointerUp);
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // 触发点击看气泡
+                        if (!stamp._isDragging) {
+                          setActiveCoords(null);
+                          setSelectedStamp(isSelected ? null : stamp);
+                        }
+                      }}
+                    >
+                      {/* 🌸 恢复原本样式的大小、透明度与悬停动画 */}
+                      <div
+                        className={`w-6 h-6 rounded-full bg-[#88abac]/90 backdrop-blur-sm border-2 border-white shadow-md flex items-center justify-center text-[11px] font-mono transition-transform active:scale-125 ${
+                          isSelected ? 'scale-125 ring-2 ring-[#88abac]' : 'hover:scale-110'
+                        }`}
+                      >
                         🌸
                       </div>
                     </div>
 
-                    {/* 💻 仅桌面端显示的原位 hover/click 气泡（手机端在下方独立渲染，彻底离场） */}
+                    {/* 💻 仅桌面端显示的原位 hover/click 气泡 */}
                     <div 
                       className={`
                         hidden sm:block absolute bottom-full mb-2 ${isLeftHalf ? 'left-0' : 'right-0'} w-64 p-4
@@ -445,15 +533,13 @@ export default function MagazineDetail() {
             </div>
 
             <p className="mt-4 text-[11px] font-mono text-zinc-400">
-              💡 提示：点击画幅任意角落即可盖章，手机可左右滑动切页，亦支持键盘 ⬅️ ➡️ 方向键翻页
+              💡 提示：电脑端右键拖拽/手机端长按拖拽可将戳记临时移开，点击角落即可盖章
             </p>
 
           </div>
         )}
 
-        {/* 📱 📱 📱 手机专用浮层 (彻底独立放置于文档根，彻底斩断对图片容器的撑开与变形风险) 📱 📱 📱 */}
-
-        {/* 1. 📱 手机端：查看已选戳记 */}
+        {/* 📱 手机专用浮层 */}
         {selectedStamp && (
           <div 
             className="sm:hidden fixed inset-x-4 bottom-6 z-[99] p-4 bg-white/85 backdrop-blur-md border border-white/80 shadow-2xl rounded-2xl animate-in slide-in-from-bottom-5 duration-200"
@@ -477,7 +563,6 @@ export default function MagazineDetail() {
           </div>
         )}
 
-        {/* 2. 📱 手机端：发射新戳记表单 */}
         {activeCoords && (
           <div 
             className="sm:hidden fixed inset-x-4 bottom-6 z-[99] p-4 bg-white/85 backdrop-blur-md border border-white/80 shadow-2xl rounded-2xl animate-in slide-in-from-bottom-5 duration-200"
