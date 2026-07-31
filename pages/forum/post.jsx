@@ -59,6 +59,12 @@ export default function PostCreatePage() {
       return;
     }
 
+    // 🔒【新增逻辑】选择官方公告时，前端拦截空密码
+    if (category === 'ANNOUNCEMENT' && !deletePassword.trim()) {
+      setErrorMsg('发布官方公告需要填写管理员密码！');
+      return;
+    }
+
     try {
       setSubmitting(true);
       setErrorMsg('');
@@ -187,7 +193,7 @@ export default function PostCreatePage() {
                   className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs focus:outline-none focus:border-[#88abac]"
                 >
                   <option value="COVER">🎤 翻唱/演奏</option>
-                  <option value="ANNOUNCEMENT">📢 官方公告</option>
+                  <option value="ANNOUNCEMENT">📢 官方公告 (需管理员密码)</option>
                   <option value="ABSTRACT">🤪 抽象/二创</option>
                   <option value="ANALYSIS">📖 歌词/剧情考察</option>
                   <option value="MUSIC">🎵 音乐/编曲讨论</option>
@@ -289,13 +295,22 @@ export default function PostCreatePage() {
 
             {/* 8. 管理/删除密码 */}
             <div>
-              <label className="block text-xs font-mono text-zinc-500 mb-1">删除密码 (用于日后修改或删除帖子)</label>
+              <label className="block text-xs font-mono text-zinc-500 mb-1">
+                {category === 'ANNOUNCEMENT' 
+                  ? '🔒 管理员密码 (发布官方公告必填) *' 
+                  : '删除密码 (用于日后修改或删除帖子)'}
+              </label>
               <input
                 type="password"
-                placeholder="设置 4-8 位密码"
+                required={category === 'ANNOUNCEMENT'}
+                placeholder={category === 'ANNOUNCEMENT' ? "请输入管理员密码" : "设置 4-8 位密码"}
                 value={deletePassword}
                 onChange={(e) => setDeletePassword(e.target.value)}
-                className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs focus:outline-none focus:border-[#88abac]"
+                className={`w-full px-4 py-2.5 bg-zinc-50 border rounded-xl text-xs focus:outline-none transition ${
+                  category === 'ANNOUNCEMENT' 
+                    ? 'border-amber-300 focus:border-amber-500' 
+                    : 'border-zinc-200/80 focus:border-[#88abac]'
+                }`}
               />
             </div>
 

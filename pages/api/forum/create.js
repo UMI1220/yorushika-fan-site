@@ -71,6 +71,29 @@ export default async function handler(req) {
       });
     }
 
+    // 🔒【新增逻辑】如果是官方公告，验证 delete_password 是否匹配 admin_users 表
+    if (category === 'ANNOUNCEMENT') {
+      if (!delete_password || !delete_password.trim()) {
+        return new Response(JSON.stringify({ error: '发布官方公告必须填写管理员密码' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: adminUser, error: adminErr } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('password', delete_password.trim())
+        .single();
+
+      if (adminErr || !adminUser) {
+        return new Response(JSON.stringify({ error: '管理员密码错误，无法发布官方公告' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // 敏感词过滤
     const fullText = `${title} ${content} ${author || ''}`;
     for (const word of SENSITIVE_WORDS) {

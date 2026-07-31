@@ -11,22 +11,17 @@ export default function ForumPage() {
   // 排序状态
   const [sortBy, setSortBy] = useState('latest'); 
 
-  // 🎯 用户自选列数状态
-  const [gridCols, setGridCols] = useState(() => {
-    if (typeof window !== 'undefined') {
-       const savedCols = localStorage.getItem('forum_grid_cols');
-       return savedCols ? Number(savedCols) : 2;
-    }
-    return 2;
-  });
+  // 🎯 用户自选列数状态（默认先设为 2，避免服务端与客户端不一致导致的 Hydration 报错）
+  const [gridCols, setGridCols] = useState(2);
+
   // 控制列数选择下拉菜单
   const [showColDropdown, setShowColDropdown] = useState(false);
 
-  /* ================= 🌟【插入段 1：搜索状态与防抖定时器】================= */
+  /* ================= 搜索状态与防抖定时器 ================= */
   const [searchTerm, setSearchTerm] = useState('');          // 输入框实时内容
   const [debouncedSearch, setDebouncedSearch] = useState('');  // 防抖后的实际搜索词
 
-  // 🎯 防抖定时器：用户停止输入 300ms 后才触发实际搜索
+  // 防抖定时器：用户停止输入 300ms 后才触发实际搜索
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -34,9 +29,16 @@ export default function ForumPage() {
 
     return () => clearTimeout(timer); // 清除上一次未执行的定时器
   }, [searchTerm]);
-  /* ========================================================================= */
 
-  /* ================= 🌟【插入段 2：更新监听与 fetchPosts 搜索逻辑】================= */
+  /* ================= 读取本地存储的列数设置 ================= */
+  useEffect(() => {
+    const savedCols = localStorage.getItem('forum_grid_cols');
+    if (savedCols) {
+      setGridCols(Number(savedCols));
+    }
+  }, []);
+
+  /* ================= 更新监听与 fetchPosts 搜索逻辑 ================= */
   useEffect(() => {
     fetchPosts();
   }, [sortBy, activeCategory, debouncedSearch]);
@@ -58,7 +60,23 @@ export default function ForumPage() {
       setLoading(false);
     }
   };
-  /* ========================================================================= */
+
+  /* ================= 恢复滚动位置 ================= */
+  useEffect(() => {
+    if (!loading && posts.length > 0) {
+      const savedScrollPos = sessionStorage.getItem('forum_scroll_pos');
+      if (savedScrollPos) {
+        setTimeout(() => {
+          window.scrollTo({
+            top: parseInt(savedScrollPos, 10),
+            behavior: 'instant'
+          });
+          // 用完立刻销毁，防止后续在首页操作时再次触发滚动
+          sessionStorage.removeItem('forum_scroll_pos');
+        }, 50);
+      }
+    }
+  }, [loading, posts]);
 
   const handleDeletePost = async (e, postId) => {
     e.preventDefault();
@@ -88,7 +106,7 @@ export default function ForumPage() {
     }
   };
 
-  /* ================= 🌟【handlePinPost 置顶处理函数】================= */
+  /* ================= handlePinPost 置顶处理函数 ================= */
   const handlePinPost = async (e, postId, isCurrentlyPinned) => {
     e.preventDefault();
     e.stopPropagation();
@@ -116,7 +134,6 @@ export default function ForumPage() {
       alert('网络请求失败，请稍后重试');
     }
   };
-  /* ============================================================================== */
 
   // 计算印章总数
   const getTotalStamps = (post) => {
@@ -170,40 +187,51 @@ export default function ForumPage() {
             <Link
               href="/forum/post"
               className="px-4 sm:px-6 py-2 sm:py-2.5 bg-[#88abac] hover:bg-[#789b9c] text-white rounded-full text-xs font-medium tracking-widest shadow-sm transition flex items-center gap-1.5 shrink-0"
+              onClick={() => {
+                if (typeof window !== 'undefined') sessionStorage.removeItem('forum_scroll_pos');
+              }}
             >
               <span>✏️</span>
               <span>发帖</span>
             </Link>
           </div>
 
-          {/* ================= 🌟【插入段 3：实时搜索框 UI】================= */}
+          {/* 实时搜索框 UI */}
           <div className="relative w-full max-w-md">
             <input
               type="text"
               placeholder="🔍 搜索标题、正文、作者..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                if (typeof window !== 'undefined') sessionStorage.removeItem('forum_scroll_pos');
+                setSearchTerm(e.target.value);
+              }}
               className="w-full px-4 py-2 sm:py-2.5 pl-9 bg-white border border-zinc-200/80 rounded-2xl text-xs focus:outline-none focus:border-[#88abac] shadow-sm transition placeholder:text-zinc-400"
             />
             {searchTerm && (
               <button
-                onClick={() => setSearchTerm('')}
+                onClick={() => {
+                  if (typeof window !== 'undefined') sessionStorage.removeItem('forum_scroll_pos');
+                  setSearchTerm('');
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-zinc-600 transition"
               >
                 ✕
               </button>
             )}
           </div>
-          {/* ========================================================================= */}
 
           {/* 筛选与排序工具栏 */}
           <div className="flex flex-col gap-3">
-            {/* 分类 Tags：窄屏下精致微调 */}
+            {/* 分类 Tags */}
             <div className="flex flex-wrap gap-1.5 sm:gap-2">
               {categories.map((cat) => (
                 <button
                   key={cat.key}
-                  onClick={() => setActiveCategory(cat.key)}
+                  onClick={() => {
+                    if (typeof window !== 'undefined') sessionStorage.removeItem('forum_scroll_pos');
+                    setActiveCategory(cat.key);
+                  }}
                   className={`px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-medium transition shrink-0 ${
                     activeCategory === cat.key
                       ? 'bg-[#88abac] text-white shadow-sm'
@@ -220,49 +248,32 @@ export default function ForumPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               {/* 5 维排序按钮 */}
               <div className="flex flex-wrap rounded-xl bg-zinc-100 p-1 text-[11px] sm:text-xs font-mono max-w-full">
-                <button
-                  onClick={() => setSortBy('latest')}
-                  className={`px-2 sm:px-3 py-1 rounded-lg transition ${
-                    sortBy === 'latest' ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
-                  }`}
-                >
-                  ⏱️ 最新
-                </button>
-                <button
-                  onClick={() => setSortBy('oldest')}
-                  className={`px-2 sm:px-3 py-1 rounded-lg transition ${
-                    sortBy === 'oldest' ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
-                  }`}
-                >
-                  ⌛ 倒序
-                </button>
-                <button
-                  onClick={() => setSortBy('most_likes')}
-                  className={`px-2 sm:px-3 py-1 rounded-lg transition ${
-                    sortBy === 'most_likes' ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
-                  }`}
-                >
-                  💙 印章
-                </button>
-                <button
-                  onClick={() => setSortBy('most_views')}
-                  className={`px-2 sm:px-3 py-1 rounded-lg transition ${
-                    sortBy === 'most_views' ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
-                  }`}
-                >
-                  👁️ 浏览
-                </button>
-                <button
-                  onClick={() => setSortBy('hottest')}
-                  className={`px-2 sm:px-3 py-1 rounded-lg transition ${
-                    sortBy === 'hottest' ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
-                  }`}
-                >
-                  🔥 最热
-                </button>
+                {['latest', 'oldest', 'most_likes', 'most_views', 'hottest'].map((type) => {
+                  const labels = {
+                    latest: '⏱️ 最新',
+                    oldest: '⌛ 倒序',
+                    most_likes: '💙 印章',
+                    most_views: '👁️ 浏览',
+                    hottest: '🔥 最热',
+                  };
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => {
+                        if (typeof window !== 'undefined') sessionStorage.removeItem('forum_scroll_pos');
+                        setSortBy(type);
+                      }}
+                      className={`px-2 sm:px-3 py-1 rounded-lg transition ${
+                        sortBy === type ? 'bg-white text-zinc-800 shadow-sm font-bold' : 'text-zinc-500'
+                      }`}
+                    >
+                      {labels[type]}
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* 🎯 列数自选下拉菜单 */}
+              {/* 列数自选下拉菜单 */}
               <div className="relative">
                 <button
                   onClick={() => setShowColDropdown(!showColDropdown)}
@@ -288,7 +299,7 @@ export default function ForumPage() {
                           onClick={() => {
                             setGridCols(num);
                             if (typeof window !== 'undefined') {
-                               localStorage.setItem('forum_grid_cols', num); // 💾 保存到本地存储
+                               localStorage.setItem('forum_grid_cols', num);
                             }
                             setShowColDropdown(false);
                           }}
@@ -333,7 +344,15 @@ export default function ForumPage() {
                     key={post.id}
                     className="bg-white rounded-3xl border border-zinc-100 hover:border-zinc-300 transition-all shadow-sm hover:shadow-md overflow-hidden flex flex-col justify-between group h-full"
                   >
-                    <Link href={`/forum/${post.id}`} className="block flex-1">
+                    <Link 
+                      href={`/forum/${post.id}`} 
+                      className="block flex-1"
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          sessionStorage.setItem('forum_scroll_pos', window.scrollY);
+                        }
+                      }}
+                    >
                       
                       {/* 4:3 比例容器 */}
                       <div 
