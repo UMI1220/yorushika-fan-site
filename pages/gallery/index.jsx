@@ -62,12 +62,12 @@ export default function GalleryPage() {
     if (stampedIds[item.id]) return; // 已盖章则绝对不减少
 
     try {
-      const newLikes = (item.likes || 0) + 1;
+      const newLikes = (Number(item.likes) || 0) + 1;
 
-      // 标记当前 item 已盖章
+      // 1. 标记当前 item 已盖章
       setStampedIds((prev) => ({ ...prev, [item.id]: true }));
 
-      // 本地状态 +1
+      // 2. 本地状态 +1
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, likes: newLikes } : i))
       );
@@ -75,10 +75,20 @@ export default function GalleryPage() {
         setSelectedImg((prev) => ({ ...prev, likes: newLikes }));
       }
 
-      // 数据库 +1
-      await supabase.from('gallery').update({ likes: newLikes }).eq('id', item.id);
+      // 3. 写入 Supabase 数据库并检查返回结果
+      const { data, error } = await supabase
+        .from('gallery')
+        .update({ likes: newLikes })
+        .eq('id', item.id)
+        .select();
+
+      if (error) {
+        console.error('Supabase 点赞更新失败:', error.message);
+      } else {
+        console.log('点赞成功落盘:', data);
+      }
     } catch (err) {
-      console.error('盖章失败:', err);
+      console.error('盖章过程出错:', err);
     }
   };
 
