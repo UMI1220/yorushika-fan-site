@@ -98,7 +98,7 @@ export default function GalleryPage() {
     e.preventDefault();
     e.stopPropagation();
 
-    const inputPassword = prompt('请输入管理员密码确认删除该画作：');
+    const inputPassword = prompt('请输入删除密码 (发帖自设口令 或 管理员口令)确认删除该画作：');
     if (!inputPassword) return;
 
     try {

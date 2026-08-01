@@ -15,7 +15,7 @@ export default function GallerySubmitPage() {
   const [quote, setQuote] = useState('');
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState('');
-  
+  const [deletePass, setDeletePass] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -70,6 +70,7 @@ export default function GallerySubmitPage() {
             title: title.trim(),
             artist: artist.trim() || '匿名画师',
             category,
+            delete_pass: deletePass.trim() || null,
             image_url: imageUrl,
             quote: quote.trim() || null,
           },
@@ -185,6 +186,19 @@ export default function GallerySubmitPage() {
                   onChange={(e) => setQuote(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:border-[#88abac] transition-colors resize-none font-serif"
                 />
+              </div>
+
+              <div>
+                  <label className="block text-xs font-serif text-zinc-700 mb-2">
+                     删除密码 / DELETE PASSWORD
+                  </label>
+                  <input
+                      type="password"
+                      value={deletePass}
+                      onChange={(e) => setDeletePass(e.target.value)}
+                      placeholder="设置删除密码（用于日后需要自行删除此作品时使用）"
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs text-zinc-800 focus:outline-none focus:border-[#88abac] focus:bg-white transition-all"
+                  />
               </div>
 
               {/* 图片上传区域 */}
