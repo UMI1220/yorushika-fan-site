@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -300,7 +301,7 @@ export default function MusicPage() {
                 ) : (
                   <div className="aspect-square max-w-xs mx-auto mb-6 rounded-2xl overflow-hidden shadow-md border border-zinc-100 relative group">
                     <img
-                      src={currentTrack?.cover_url || '/01.jpg'}
+                      src={toCDNUrl(currentTrack?.cover_url) || '/01.jpg'}
                       alt={currentTrack?.title}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
@@ -320,7 +321,7 @@ export default function MusicPage() {
                 {/* Audio 元素 */}
                 <audio
                   ref={audioRef}
-                  src={currentTrack?.audio_url}
+                  src={toCDNUrl(currentTrack?.audio_url)}
                   onTimeUpdate={handleTimeUpdate}
                   onEnded={() => {
                     if (currentTrackIndex < filteredTracks.length - 1) {

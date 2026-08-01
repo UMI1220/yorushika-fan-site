@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Layout from '../../components/Layout';
@@ -84,7 +85,7 @@ export default function MagazineIndex() {
                   <div className="relative aspect-[3/4] bg-zinc-100 overflow-hidden">
                     {coverImg ? (
                       <img
-                        src={coverImg}
+                        src={toCDNUrl(coverImg)}
                         alt={mag.title}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />

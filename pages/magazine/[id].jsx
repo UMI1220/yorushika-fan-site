@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -48,7 +49,7 @@ export default function MagazineDetail() {
           setMagazine(currentMag);
           const targetUrl = currentMag.zip_url || currentMag.file_url || currentMag.pdf_url;
           if (targetUrl) {
-            loadAndUnzip(targetUrl);
+            loadAndUnzip(toCDNUrl(targetUrl));
           } else {
             setLoading(false);
           }

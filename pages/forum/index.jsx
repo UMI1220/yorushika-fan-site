@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -336,7 +337,7 @@ export default function ForumPage() {
               style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
             >
               {posts.map((post) => {
-                const coverImage = post.image_url ? post.image_url.split(',')[0] : null;
+                const coverImage = post.image_url ? toCDNUrl(post.image_url.split(',')[0]) : null;
                 const hasVideo = Boolean(post.video_url && post.video_url.trim());
 
                 return (

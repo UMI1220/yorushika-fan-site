@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -374,7 +375,7 @@ export default function ForumDetailPage() {
                 <div className="my-6">
                   <div className="relative rounded-2xl overflow-hidden border border-zinc-200/80 bg-zinc-900/5 flex items-center justify-center">
                     <img
-                      src={images[0]}
+                      src={toCDNUrl(images[0])}
                       alt="帖子配图"
                       className="w-full max-h-[500px] object-contain cursor-pointer transition hover:opacity-95"
                       onClick={() => setGalleryIndex(0)}
@@ -520,7 +521,7 @@ export default function ForumDetailPage() {
 
                         {c.image_url && (
                           <img
-                            src={c.image_url}
+                            src={toCDNUrl(c.image_url)}
                             alt="评论配图"
                             className="max-w-xs max-h-48 rounded-xl object-cover border border-zinc-200 mt-2"
                           />
@@ -587,7 +588,7 @@ export default function ForumDetailPage() {
           )}
 
           <img
-            src={images[galleryIndex]}
+            src={toCDNUrl(images[galleryIndex])}
             alt="全屏图"
             className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()}

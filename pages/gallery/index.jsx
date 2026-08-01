@@ -1,3 +1,4 @@
+import { toCDNUrl } from '../../lib/cdn';
 import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
@@ -202,7 +203,7 @@ export default function GalleryPage() {
                 >
                   <div className="relative overflow-hidden">
                     <img
-                      src={item.image_url}
+                      src={toCDNUrl(item.image_url)}
                       alt={item.title}
                       className="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
@@ -269,7 +270,7 @@ export default function GalleryPage() {
             {/* 图片展示区 */}
             <div className="md:w-2/3 bg-zinc-950 flex items-center justify-center p-2">
               <img
-                src={selectedImg.image_url}
+                src={toCDNUrl(selectedImg.image_url)}
                 alt={selectedImg.title}
                 className="max-h-[70vh] md:max-h-[85vh] w-auto object-contain"
               />
