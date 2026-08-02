@@ -172,6 +172,7 @@ export default function MusicPage() {
     <Layout>
       <Head>
         <title>音乐馆 | Yorushika FanSite</title>
+        <meta name="robots" content="noindex, nofollow" />
       </Head>
 
       <div className="max-w-6xl mx-auto px-4 py-8">
