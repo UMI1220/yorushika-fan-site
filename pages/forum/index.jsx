@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import Layout from '../../components/Layout';
+import ForumAuthor from '../../components/ForumAuthor';
 
 export default function ForumPage() {
   const [posts, setPosts] = useState([]);
@@ -17,6 +18,9 @@ export default function ForumPage() {
 
   // 控制列数选择下拉菜单
   const [showColDropdown, setShowColDropdown] = useState(false);
+
+  // 已注册用户映射：nickname -> { id, avatar }
+  const [userMap, setUserMap] = useState({});
 
   /* ================= 搜索状态与防抖定时器 ================= */
   const [searchTerm, setSearchTerm] = useState('');          // 输入框实时内容
@@ -37,6 +41,22 @@ export default function ForumPage() {
     if (savedCols) {
       setGridCols(Number(savedCols));
     }
+  }, []);
+
+  /* ================= 加载已注册用户映射 ================= */
+  useEffect(() => {
+    fetch('/api/person/users')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          const map = {};
+          data.users.forEach((u) => {
+            map[u.nickname] = { id: u.id, avatar: u.avatar || null };
+          });
+          setUserMap(map);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   /* ================= 更新监听与 fetchPosts 搜索逻辑 ================= */
@@ -399,9 +419,7 @@ export default function ForumPage() {
                     {/* 卡片底栏 */}
                     <div className="px-3 sm:px-4 py-2 sm:py-3 bg-white border-t border-zinc-50 text-[11px] sm:text-xs text-zinc-400 font-mono space-y-1.5 sm:space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="truncate max-w-[120px] sm:max-w-[150px] text-zinc-600 font-medium">
-                          👤 {post.author || '匿名鹿友'}
-                        </span>
+                        <ForumAuthor author={post.author} userMap={userMap} />
 
                         {/* 按钮组 */}
                         <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
@@ -24,6 +24,26 @@ export default function PostCreatePage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Person 会话：已登录则发帖使用账户昵称
+  const [session, setSession] = useState(null);
+  const [authorLocked, setAuthorLocked] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('person_session');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setSession(parsed);
+        if (parsed.nickname) {
+          setAuthor(parsed.nickname);
+          setAuthorLocked(true);
+        }
+      } catch (e) {
+        localStorage.removeItem('person_session');
+      }
+    }
+  }, []);
 
   // 🎯 2. 处理多张图片选择与预览
   const handleFileChange = (e) => {
@@ -175,14 +195,27 @@ export default function PostCreatePage() {
             {/* 2. 基础信息：昵称 + 分类 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-mono text-zinc-500 mb-1">昵称 (选填)</label>
+                <label className="block text-xs font-mono text-zinc-500 mb-1">
+                  {authorLocked ? '昵称（已使用 Person 账户）' : '昵称 (选填)'}
+                </label>
                 <input
                   type="text"
                   placeholder="匿名鹿友"
                   value={author}
                   onChange={(e) => setAuthor(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200/80 rounded-xl text-xs focus:outline-none focus:border-[#88abac]"
+                  readOnly={authorLocked}
+                  disabled={authorLocked}
+                  className={`w-full px-4 py-2.5 bg-zinc-50 border rounded-xl text-xs focus:outline-none ${
+                    authorLocked
+                      ? 'border-[#88abac] text-[#88abac] font-bold cursor-not-allowed'
+                      : 'border-zinc-200/80 focus:border-[#88abac]'
+                  }`}
                 />
+                {authorLocked && (
+                  <p className="mt-1 text-[10px] font-mono text-teal-600">
+                    已登录 {session.nickname}（ID: {session.id}），发帖将自动使用此昵称
+                  </p>
+                )}
               </div>
 
               <div>

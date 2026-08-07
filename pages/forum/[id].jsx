@@ -4,6 +4,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
+import ForumAuthor from '../../components/ForumAuthor';
 
 // 夜鹿特色印章选项
 const STAMPS = [
@@ -43,11 +44,50 @@ export default function ForumDetailPage() {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
+  // 已注册用户映射：nickname -> { id, avatar }
+  const [userMap, setUserMap] = useState({});
+
+  // Person 会话：已登录则评论使用账户昵称（锁死）
+  const [session, setSession] = useState(null);
+  const [commentAuthorLocked, setCommentAuthorLocked] = useState(false);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('person_session');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setSession(parsed);
+        if (parsed.nickname) {
+          setCommentAuthor(parsed.nickname);
+          setCommentAuthorLocked(true);
+        }
+      } catch (e) {
+        localStorage.removeItem('person_session');
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (id) {
       fetchPostAndComments(id);
     }
   }, [id]);
+
+  // 加载已注册用户映射
+  useEffect(() => {
+    fetch('/api/person/users')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.success) {
+          const map = {};
+          data.users.forEach((u) => {
+            map[u.nickname] = { id: u.id, avatar: u.avatar || null };
+          });
+          setUserMap(map);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const images = post?.image_url ? post.image_url.split(',').filter(Boolean) : [];
 
@@ -181,7 +221,7 @@ export default function ForumDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           post_id: post.id,
-          author: commentAuthor.trim() || '匿名鹿友',
+          author: commentAuthorLocked ? session.nickname : (commentAuthor.trim() || '匿名鹿友'),
           content: replyParent ? `[@${replyParent.author}]: ${commentText.trim()}` : commentText.trim(),
           parent_id: replyParent ? replyParent.id : null,
           image_url: uploadedImgUrl,
@@ -353,7 +393,7 @@ export default function ForumDetailPage() {
 
                 <div className="flex justify-between items-center mt-4 text-xs font-mono text-zinc-400">
                   <div className="flex items-center gap-3">
-                    <span>👤 {post.author || '匿名鹿友'}</span>
+                    <ForumAuthor author={post.author} userMap={userMap} />
                     <span>👁️ {post.views || 0} 次浏览</span>
                   </div>
                   <button onClick={handleDeletePost} className="text-zinc-300 hover:text-rose-500 transition">
@@ -452,7 +492,14 @@ export default function ForumDetailPage() {
                         placeholder="昵称 (默认: 匿名鹿友)"
                         value={commentAuthor}
                         onChange={(e) => setCommentAuthor(e.target.value)}
-                        className="text-xs font-mono px-3 py-1.5 bg-white border border-zinc-200 rounded-lg focus:outline-none focus:border-[#88abac] w-36"
+                        readOnly={commentAuthorLocked}
+                        disabled={commentAuthorLocked}
+                        className={`text-xs font-mono px-3 py-1.5 bg-white border rounded-lg focus:outline-none w-36 ${
+                          commentAuthorLocked
+                            ? 'border-[#88abac] text-[#88abac] font-bold cursor-not-allowed'
+                            : 'border-zinc-200 focus:border-[#88abac]'
+                        }`}
+                        title={commentAuthorLocked ? '已使用 Person 账户昵称' : ''}
                       />
                       <input
                         type="password"
@@ -487,7 +534,7 @@ export default function ForumDetailPage() {
                     comments.map((c) => (
                       <div key={c.id} className="p-4 bg-zinc-50/60 rounded-2xl border border-zinc-100/80 space-y-2">
                         <div className="flex justify-between items-center text-xs text-zinc-400 font-mono">
-                          <span>👤 {c.author || '匿名鹿友'}</span>
+                          <ForumAuthor author={c.author} userMap={userMap} />
                           <div className="flex items-center gap-2.5">
                             {/* 🎯 3. 点击回复自动平滑滚动并聚焦 */}
                             <button

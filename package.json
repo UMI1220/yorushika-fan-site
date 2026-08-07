@@ -14,6 +14,7 @@
     "formidable": "^3.5.4",
     "jszip": "^3.10.1",
     "next": "16.2.11",
+    "nodemailer": "^9.0.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "resend": "^6.18.0"
