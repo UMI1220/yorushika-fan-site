@@ -42,6 +42,7 @@ export default function Layout({ children }) {
               <Link href="/gallery" className="hover:text-teal-600 transition shrink-0">GALLERY</Link>
               <Link href="/music" className="hover:text-teal-600 transition shrink-0">DISCOGRAPHY</Link>
               <Link href="/about" className="hover:text-teal-600 transition shrink-0">ABOUT</Link>
+              <Link href="/person" className="hover:text-teal-600 transition shrink-0">Person page（beta）</Link>
             </nav>
           </div>
         </header>
