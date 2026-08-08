@@ -44,4 +44,34 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
 CREATE INDEX IF NOT EXISTS idx_comments_track ON comments(track_id);
 CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
+-- 5. 曲目/专辑元数据与贡献记录表
+CREATE TABLE IF NOT EXISTS music_tracks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  album_id INTEGER NOT NULL,
+  track_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  title_ja TEXT,
+  audio_url TEXT,
+  mv_url TEXT,
+  lrc_ja TEXT,
+  lrc_zh TEXT,
+  contributor_email TEXT NOT NULL,
+  status TEXT DEFAULT 'approved', -- 'pending' | 'approved'
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. 补充与修改申请日志表
+CREATE TABLE IF NOT EXISTS music_submissions (
+  id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL, -- 'supplement' | 'modify'
+  album_id INTEGER NOT NULL,
+  track_title TEXT NOT NULL,
+  contributor_email TEXT NOT NULL,
+  cover_url TEXT,
+  audio_url TEXT,
+  mv_url TEXT,
+  lrc_content TEXT,
+  notes TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 
