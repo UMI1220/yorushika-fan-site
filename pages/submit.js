@@ -1,297 +1,245 @@
-import { useState } from 'react';
-export const runtime = 'edge';
+import React, { useState } from 'react';
 import Head from 'next/head';
-import Link from 'next/link';
-import Layout from '../../components/Layout';
-import { YORUSHIKA_DISCOGRAPHY } from '../../lib/discography';
+import Layout from '../components/Layout';
 
-export default function MusicSubmitPage() {
-  // 模式选择: 'supplement' (补充) | 'modify' (修改)
-  const [submitMode, setSubmitMode] = useState('supplement');
+export default function SubmitPage() {
+  const [mode, setMode] = useState('supplement'); // 'supplement' (补充新曲) | 'modify' (修正已知)
   
   // 表单状态
-  const [selectedAlbumId, setSelectedAlbumId] = useState(1);
+  const [albumId, setAlbumId] = useState('1');
   const [trackTitle, setTrackTitle] = useState('');
   const [contributorEmail, setContributorEmail] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [mvUrl, setMvUrl] = useState('');
   const [lrcJa, setLrcJa] = useState('');
   const [lrcZh, setLrcZh] = useState('');
-  const [coverFile, setCoverFile] = useState(null);
+  const [coverFileName, setCoverFileName] = useState('');
   const [notes, setNotes] = useState('');
-  
-  // 状态反馈
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [message, setMessage] = useState('');
 
-  // 模拟自动计算下一张新封面的重命名序号 (例如 47.jpg)
-  const nextCoverIndex = 47; 
+  const [submitting, setSubmitting] = useState(false);
+  const [msg, setMsg] = useState({ type: '', text: '' });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!contributorEmail || !contributorEmail.includes('@')) {
-      setMessage('请填写有效的贡献者邮箱，该邮箱将作为歌词区贡献人标记。');
+    if (!trackTitle.trim() || !contributorEmail.trim()) {
+      setMsg({ type: 'error', text: '请填写曲目名称与贡献者邮箱！' });
       return;
     }
 
-    setIsSubmitting(true);
-    setMessage('');
+    setSubmitting(true);
+    setMsg({ type: '', text: '' });
 
     try {
-      // 提交 API Payload
-      const payload = {
-        mode: submitMode,
-        albumId: selectedAlbumId,
-        trackTitle,
-        contributorEmail,
-        audioUrl,
-        mvUrl,
-        lrcJa,
-        lrcZh,
-        coverFileName: coverFile ? `${nextCoverIndex}.jpg` : null,
-        notes
-      };
-
-      const res = await fetch('/api/music/submit', {
+      // 提交给后台/管理员审核队列 API
+      const res = await fetch('/api/admin/manage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          action: 'submit_contribution',
+          data: {
+            id: `sub_${Date.now()}`,
+            mode,
+            albumId: parseInt(albumId, 10),
+            trackTitle: trackTitle.trim(),
+            contributorEmail: contributorEmail.trim(),
+            audioUrl: audioUrl.trim(),
+            mvUrl: mvUrl.trim(),
+            lrcJa: lrcJa.trim(),
+            lrcZh: lrcZh.trim(),
+            coverFileName: coverFileName.trim(),
+            notes: notes.trim(),
+          },
+        }),
       });
 
-      if (res.ok) {
-        setMessage(`提交成功！感谢你的贡献。新封面将自动归档为 ${nextCoverIndex}.jpg，贡献者信息已记录。`);
-        // 重置表单
-        setTrackTitle('');
-        setAudioUrl('');
-        setMvUrl('');
-        setLrcJa('');
-        setLrcZh('');
-        setCoverFile(null);
-      } else {
-        setMessage('提交失败，请检查网络或配置。');
-      }
+      if (!res.ok) throw new Error('提交失败');
+
+      setMsg({
+        type: 'success',
+        text: '贡献内容已送达审核队列！超级管理员 (UMI1220) 审核通过后将正式合并上线。',
+      });
+
+      // 重置表单
+      setTrackTitle('');
+      setAudioUrl('');
+      setMvUrl('');
+      setLrcJa('');
+      setLrcZh('');
+      setCoverFileName('');
+      setNotes('');
     } catch (err) {
-      setMessage('提交过程遇到错误：' + err.message);
+      setMsg({ type: 'error', text: '提交发生错误，请稍后重试。' });
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   };
 
   return (
     <Layout>
       <Head>
-        <title>曲目贡献与修改 - ヨルシカ</title>
+        <title>CONTRIBUTE / 社区贡献 · ヨルシカ Fan Site</title>
       </Head>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-8 py-8 font-sans">
-        
-        {/* 页头面包屑与标题 */}
-        <div className="border-b border-zinc-800 pb-4 mb-8 flex justify-between items-end">
-          <div>
-            <Link href="/music" className="text-xs font-mono text-[#a5c9ca] hover:underline block mb-1">
-              ← RETURN TO MUSIC
-            </Link>
-            <h1 className="text-xl sm:text-2xl font-serif tracking-widest font-medium">
-              音楽資料の補充と修正
-            </h1>
-          </div>
-          <span className="text-[10px] font-mono opacity-50 uppercase hidden sm:block">
-            CONTRIBUTE & EDIT MODULE
+      <div className="max-w-3xl mx-auto px-4 py-8 font-serif text-zinc-200 space-y-8">
+        {/* 顶部标题 */}
+        <div className="border-b border-[#88abac]/20 pb-4">
+          <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest block uppercase mb-1">
+            COMMUNITY CONTRIBUTION / 音楽泥棒の庭
           </span>
+          <h1 className="text-2xl font-medium tracking-wide text-white">社区曲目与歌词贡献</h1>
         </div>
 
-        {/* 主体卡片 (毛玻璃直角卡片) */}
-        <div className="bg-zinc-900/60 backdrop-blur-md border border-zinc-800 p-6 sm:p-8 space-y-6">
-          
-          {/* 1. 模式切换按钮 (补充 vs 修改) */}
-          <div className="flex border border-zinc-800 bg-zinc-950/80 font-mono text-xs w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => setSubmitMode('supplement')}
-              className={`flex-1 sm:flex-none px-6 py-2.5 transition ${
-                submitMode === 'supplement'
-                  ? 'bg-[#a5c9ca] text-zinc-950 font-bold'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              补充模式 (ADD MEDIA)
-            </button>
-            <button
-              type="button"
-              onClick={() => setSubmitMode('modify')}
-              className={`flex-1 sm:flex-none px-6 py-2.5 transition ${
-                submitMode === 'modify'
-                  ? 'bg-[#a5c9ca] text-zinc-950 font-bold'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              修改模式 (CORRECT INFO)
-            </button>
+        {/* 模式选择切换栏 */}
+        <div className="flex border border-[#88abac]/30 p-1 bg-zinc-900/60 font-mono text-xs">
+          <button
+            type="button"
+            onClick={() => setMode('supplement')}
+            className={`flex-1 py-2 text-center transition ${
+              mode === 'supplement'
+                ? 'bg-[#88abac] text-zinc-950 font-bold'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            ＋ 补充新曲 / 歌词
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('modify')}
+            className={`flex-1 py-2 text-center transition ${
+              mode === 'modify'
+                ? 'bg-[#88abac] text-zinc-950 font-bold'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            ✏️ 修正已知曲目 / 错误校对
+          </button>
+        </div>
+
+        {/* 提示消息 */}
+        {msg.text && (
+          <div
+            className={`p-4 font-mono text-xs border ${
+              msg.type === 'success'
+                ? 'bg-[#88abac]/10 border-[#88abac] text-[#a5c9ca]'
+                : 'bg-rose-950/40 border-rose-800 text-rose-300'
+            }`}
+          >
+            {msg.text}
           </div>
+        )}
 
-          <p className="text-xs font-serif text-zinc-400 italic">
-            {submitMode === 'supplement'
-              ? '「补充模式」：为已有缺项的曲目补充音源链接、Bilibili MV 嵌入地址、中日 LRC 歌词或封面图。'
-              : '「修改模式」：修正曲目名称、曲序、作者标注或修正错误的歌词。'}
-          </p>
-
-          <form onSubmit={handleSubmit} className="space-y-5 text-xs font-serif">
-            
-            {/* 关联专辑与曲目 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  选择关联专辑 / ALBUM
-                </label>
-                <select
-                  value={selectedAlbumId}
-                  onChange={(e) => setSelectedAlbumId(Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                >
-                  {YORUSHIKA_DISCOGRAPHY.map((album) => (
-                    <option key={album.id} value={album.id}>
-                      [{album.date}] {album.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  曲目标题 / TRACK TITLE *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="如: 言って。"
-                  value={trackTitle}
-                  onChange={(e) => setTrackTitle(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                />
-              </div>
-            </div>
-
-            {/* 贡献人有效邮箱 (必填，显示在歌词区) */}
+        {/* 贡献表单 */}
+        <form onSubmit={handleSubmit} className="bg-zinc-900/80 border border-white/5 p-6 sm:p-8 space-y-6 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block font-mono text-[10px] text-[#a5c9ca] mb-1.5 uppercase">
-                贡献者邮箱 / CONTRIBUTOR EMAIL * (将在歌词页底端署名)
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="your-name@example.com"
-                value={contributorEmail}
-                onChange={(e) => setContributorEmail(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
-              />
+              <label className="block text-zinc-400 mb-1">所属专辑 *</label>
+              <select
+                value={albumId}
+                onChange={(e) => setAlbumId(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none focus:border-[#88abac]"
+              >
+                <option value="1">1. 夏草が邪魔をする (夏草旁骛)</option>
+                <option value="2">2. 負け犬にアンコールはいらない (败犬重奏)</option>
+                <option value="3">3. だから僕は音楽を辞めた (所以放弃音乐)</option>
+                <option value="4">4. エルマ (Elma)</option>
+                <option value="5">5. 盗作 (盗作)</option>
+                <option value="6">6. 幻燈 (Magic Lantern)</option>
+              </select>
             </div>
 
-            {/* 音频与 MV 链接 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  音频文件 URL (AUDIO FILE URL)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://.../song.mp3"
-                  value={audioUrl}
-                  onChange={(e) => setAudioUrl(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  MV Bilibili BV号 / EMBED URL
-                </label>
-                <input
-                  type="text"
-                  placeholder="BV134411c7A2"
-                  value={mvUrl}
-                  onChange={(e) => setMvUrl(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                />
-              </div>
-            </div>
-
-            {/* 自动重命名封面上传 */}
             <div>
-              <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                上传新封面 (自动命名归档为 {nextCoverIndex}.jpg 并存入 public/covers/)
-              </label>
-              <input
-                type="file"
-                accept="image/jpeg,image/png"
-                onChange={(e) => setCoverFile(e.target.files[0])}
-                className="w-full bg-zinc-950 border border-zinc-800 p-2 text-xs text-zinc-400 rounded-none file:mr-4 file:py-1 file:px-3 file:border-0 file:bg-zinc-800 file:text-zinc-200 hover:file:bg-[#a5c9ca] hover:file:text-zinc-950"
-              />
-            </div>
-
-            {/* 中日双语 LRC 歌词输入 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  日文 LRC 歌词 (JAPANESE LYRICS)
-                </label>
-                <textarea
-                  rows={5}
-                  placeholder="[00:12.00] 音楽の盗作をして生きていた..."
-                  value={lrcJa}
-                  onChange={(e) => setLrcJa(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 font-mono text-[11px] focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                  中文 LRC 翻译 (CHINESE TRANSLATION)
-                </label>
-                <textarea
-                  rows={5}
-                  placeholder="[00:12.00] 我靠着盗作别人的音乐度过了半生..."
-                  value={lrcZh}
-                  onChange={(e) => setLrcZh(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 font-mono text-[11px] focus:border-[#a5c9ca] focus:outline-none rounded-none"
-                />
-              </div>
-            </div>
-
-            {/* 补充说明 */}
-            <div>
-              <label className="block font-mono text-[10px] text-zinc-400 mb-1.5 uppercase">
-                备注与来源说明 (NOTES)
-              </label>
+              <label className="block text-zinc-400 mb-1">曲目名称 (日/中) *</label>
               <input
                 type="text"
-                placeholder="例如：歌词译者为鹿友A，音源来源于自购 CD 转录"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-800 p-2.5 text-zinc-200 focus:border-[#a5c9ca] focus:outline-none rounded-none"
+                placeholder="例如: 言の葉 / 言之叶"
+                value={trackTitle}
+                onChange={(e) => setTrackTitle(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none focus:border-[#88abac]"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-zinc-400 mb-1">贡献者邮箱 * (用于审核通过通知)</label>
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={contributorEmail}
+              onChange={(e) => setContributorEmail(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none focus:border-[#88abac]"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-zinc-400 mb-1">音频 CDN 路径 / 链接 (选填)</label>
+              <input
+                type="text"
+                placeholder="music/song.mp3 或外链"
+                value={audioUrl}
+                onChange={(e) => setAudioUrl(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none font-mono focus:border-[#88abac]"
               />
             </div>
 
-            {/* 信息提示 */}
-            {message && (
-              <div className="p-3 bg-zinc-950 border border-[#a5c9ca]/40 text-[#a5c9ca] font-mono text-xs">
-                {message}
-              </div>
-            )}
+            <div>
+              <label className="block text-zinc-400 mb-1">MV / Bilibili 嵌入链接 (选填)</label>
+              <input
+                type="text"
+                placeholder="https://www.bilibili.com/video/..."
+                value={mvUrl}
+                onChange={(e) => setMvUrl(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none font-mono focus:border-[#88abac]"
+              />
+            </div>
+          </div>
 
-            {/* 提交按钮 */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full sm:w-auto px-8 py-3 bg-[#a5c9ca] text-zinc-950 font-mono font-bold text-xs hover:bg-[#88abac] transition disabled:opacity-50 rounded-none"
-              >
-                {isSubmitting ? 'SUBMITTING...' : '确认并提交贡献'}
-              </button>
+          {/* LRC 歌词输入区 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-zinc-400 mb-1">日文 LRC 歌词 (含时间轴)</label>
+              <textarea
+                rows={6}
+                placeholder="[00:12.00]音楽の盗作をして生きていた..."
+                value={lrcJa}
+                onChange={(e) => setLrcJa(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none font-mono text-[11px] leading-relaxed focus:border-[#88abac]"
+              />
             </div>
 
-          </form>
+            <div>
+              <label className="block text-zinc-400 mb-1">中文 LRC 歌词 (含时间轴)</label>
+              <textarea
+                rows={6}
+                placeholder="[00:12.00]我靠着盗作别人的音乐度过了半生..."
+                value={lrcZh}
+                onChange={(e) => setLrcZh(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none font-mono text-[11px] leading-relaxed focus:border-[#88abac]"
+              />
+            </div>
+          </div>
 
-        </div>
+          <div>
+            <label className="block text-zinc-400 mb-1">补充说明 / 备注校对原因</label>
+            <textarea
+              rows={3}
+              placeholder="例如: 修正了第2节歌词中日翻译偏差..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full bg-zinc-800 border border-zinc-700 p-2.5 text-zinc-200 focus:outline-none focus:border-[#88abac]"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 bg-[#88abac] hover:bg-[#789b9c] text-zinc-950 font-bold text-xs tracking-widest transition uppercase font-mono"
+          >
+            {submitting ? 'SUBMITTING...' : '确认并发送贡献申请 / SUBMIT'}
+          </button>
+        </form>
       </div>
     </Layout>
   );
