@@ -1,27 +1,27 @@
 -- 1. 专辑表 (albums)
 CREATE TABLE IF NOT EXISTS albums (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title_jp TEXT NOT NULL,                  -- 日文专辑名 (例如: エルマ)
-  title_cn TEXT,                           -- 中文专辑名 (例如: Elma)
-  cover_url TEXT NOT NULL,                 -- CDN 封面图片路径
-  release_date TEXT,                       -- 发售日期
-  letter_title TEXT,                       -- 自白书信标题/副标题
-  letter_content TEXT,                     -- 音乐泥棒的自白书信文本 (日/中)
+  title_jp TEXT NOT NULL,
+  title_cn TEXT,
+  cover_url TEXT NOT NULL,
+  release_date TEXT,
+  letter_title TEXT,
+  letter_content TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2. 曲目表 (tracks)
 CREATE TABLE IF NOT EXISTS tracks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  album_id INTEGER NOT NULL,               -- 关联 albums.id
-  track_number INTEGER NOT NULL,           -- 专辑内曲目序号 (1, 2, 3...)
-  title_jp TEXT NOT NULL,                  -- 日文曲目名
-  title_cn TEXT,                           -- 中文翻译曲目名
-  audio_url TEXT,                          -- Cloudflare CDN MP3 音频路径
-  mv_url TEXT,                             -- Bilibili / YouTube MV 链接
-  lrc_jp TEXT,                             -- 日文双语 LRC 歌词
-  lrc_cn TEXT,                             -- 中文 LRC 歌词
-  contributor TEXT,                        -- 歌词/资源贡献者标识
+  album_id INTEGER NOT NULL,
+  track_number INTEGER NOT NULL,
+  title_jp TEXT NOT NULL,
+  title_cn TEXT,
+  audio_url TEXT,
+  mv_url TEXT,
+  lrc_jp TEXT,
+  lrc_cn TEXT,
+  contributor TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
 );
@@ -29,49 +29,52 @@ CREATE TABLE IF NOT EXISTS tracks (
 -- 3. 评论与回复表 (comments)
 CREATE TABLE IF NOT EXISTS comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  track_id INTEGER NOT NULL,               -- 关联 tracks.id
-  parent_id INTEGER DEFAULT NULL,          -- NULL 为主评论，有值时为对某条评论的回复
-  nickname TEXT NOT NULL,                  -- 评论者昵称
-  content TEXT NOT NULL,                   -- 评论文本内容
-  media_url TEXT DEFAULT NULL,             -- 随附图片或音频 CDN URL
-  media_type TEXT DEFAULT NULL,            -- 'image' | 'audio'
-  delete_password TEXT,                    -- 删除密码
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (track_id) REFERENCES tracks(id) ON DELETE CASCADE
+  target_id TEXT NOT NULL, -- 如 'album_1' 或 'track_12'
+  parent_id INTEGER DEFAULT NULL, -- NULL 为主评论，有值时为回复
+  nickname TEXT NOT NULL,
+  content TEXT NOT NULL,
+  media_url TEXT DEFAULT NULL,
+  media_type TEXT DEFAULT NULL, -- 'image' | 'audio'
+  delete_password TEXT,
+  is_pinned INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. 创建常用查询索引，提升边缘 API 读取性能
-CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
-CREATE INDEX IF NOT EXISTS idx_comments_track ON comments(track_id);
-CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
--- 5. 曲目/专辑元数据与贡献记录表
-CREATE TABLE IF NOT EXISTS music_tracks (
+-- 4. 反馈与申诉表 (feedback)
+CREATE TABLE IF NOT EXISTS feedback (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  album_id INTEGER NOT NULL,
-  track_number INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  title_ja TEXT,
+  type TEXT NOT NULL, -- 'report' | 'bug' | 'suggestion'
+  content TEXT NOT NULL,
+  contact TEXT DEFAULT '匿名盗贼',
+  status TEXT DEFAULT 'pending', -- 'pending' | 'resolved'
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. 贡献与修正申请表 (submissions)
+CREATE TABLE IF NOT EXISTS submissions (
+  id TEXT PRIMARY KEY,
+  mode TEXT NOT NULL, -- 'supplement' | 'modify'
+  album_id INTEGER,
+  track_title TEXT NOT NULL,
+  contributor_email TEXT NOT NULL,
   audio_url TEXT,
   mv_url TEXT,
   lrc_ja TEXT,
   lrc_zh TEXT,
-  contributor_email TEXT NOT NULL,
-  status TEXT DEFAULT 'approved', -- 'pending' | 'approved'
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- 6. 补充与修改申请日志表
-CREATE TABLE IF NOT EXISTS music_submissions (
-  id TEXT PRIMARY KEY,
-  mode TEXT NOT NULL, -- 'supplement' | 'modify'
-  album_id INTEGER NOT NULL,
-  track_title TEXT NOT NULL,
-  contributor_email TEXT NOT NULL,
-  cover_url TEXT,
-  audio_url TEXT,
-  mv_url TEXT,
-  lrc_content TEXT,
+  cover_file_name TEXT,
   notes TEXT,
+  status TEXT DEFAULT 'pending', -- 'pending' | 'approved' | 'rejected'
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 6. 临时管理口令表 (admin_codes)
+CREATE TABLE IF NOT EXISTS admin_codes (
+  code TEXT PRIMARY KEY,
+  created_by TEXT NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used INTEGER DEFAULT 0
+);
+
+-- 索引配置
+CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
+CREATE INDEX IF NOT EXISTS idx_comments_target ON comments(target_id);
