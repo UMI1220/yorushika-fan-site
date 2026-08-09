@@ -1,275 +1,181 @@
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
+import React, { useState, useEffect } from 'react';
 import Head from 'next/head';
+import Link from 'next/link';
 import Layout from '../components/Layout';
-import { YORUSHIKA_DISCOGRAPHY } from '../lib/discography';
 
-// Google Pixel 画布主色提取算法
-function extractPixelColor(imageSrc, callback) {
-  if (typeof window === 'undefined') return;
-  const img = new Image();
-  img.crossOrigin = 'Anonymous';
-  img.src = imageSrc;
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = 16;
-    canvas.height = 16;
-    ctx.drawImage(img, 0, 0, 16, 16);
-    const data = ctx.getImageData(0, 0, 16, 16).data;
-    
-    let r = 0, g = 0, b = 0, count = 0;
-    for (let i = 0; i < data.length; i += 4) {
-      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      if (brightness > 30 && brightness < 230) {
-        r += data[i];
-        g += data[i + 1];
-        b += data[i + 2];
-        count++;
-      }
-    }
-    if (count > 0) {
-      callback(`rgb(${Math.floor(r / count)}, ${Math.floor(g / count)}, ${Math.floor(b / count)})`);
-    } else {
-      callback('#a5c9ca');
-    }
-  };
-  img.onerror = () => callback('#a5c9ca');
-}
+// 模拟夜鹿专辑数据 (实际可结合 /api/albums 接口)
+const ALBUMS = [
+  {
+    id: '01',
+    title: '夏草が邪魔をする',
+    subtitle: '夏草旁骛',
+    quote: '「カトレアの花が咲いた、夏が始まる」',
+    cover: '/covers/01.jpg',
+    color: '#3b5998', // Pixel 吸色备用值
+  },
+  {
+    id: '02',
+    title: '負け犬にアンコールはいらない',
+    subtitle: '败犬重奏',
+    quote: '「只一言、ただ一言でいいから」',
+    cover: '/covers/02.jpg',
+    color: '#8b4513',
+  },
+  {
+    id: '03',
+    title: 'だから僕は音楽を辞めた',
+    subtitle: '所以放弃音乐',
+    quote: '「僕らはただ、あの人の歌を盗み続けていた」',
+    cover: '/covers/03.jpg',
+    color: '#1a365d',
+  },
+  {
+    id: '04',
+    title: 'エルマ',
+    subtitle: 'Elma',
+    quote: '「夕凪の街、君の残したノート」',
+    cover: '/covers/04.jpg',
+    color: '#2d3748',
+  },
+  {
+    id: '05',
+    title: '盗作',
+    subtitle: '盗作',
+    quote: '「音楽の盗作をして生きていた」',
+    cover: '/covers/05.jpg',
+    color: '#742a2a',
+  },
+  {
+    id: '06',
+    title: '幻燈',
+    subtitle: 'Magic Lantern',
+    quote: '「画集に描かれた、夏の幻影」',
+    cover: '/covers/06.jpg',
+    color: '#2c5282',
+  },
+];
 
 export default function Home() {
-  const router = useRouter();
-  
-  // 状态管理
-  const [albums] = useState(YORUSHIKA_DISCOGRAPHY);
-  const [isMoonlight, setIsMoonlight] = useState(false);
-  const [themeColor, setThemeColor] = useState('#a5c9ca'); // 默认月光青
-  const [extractedColors, setExtractedColors] = useState({});
-  const [activeTileId, setActiveTileId] = useState(null);
-  const [loaded, setLoaded] = useState(false);
-  
-  // 坚果 OS 风格“感知光影”实时角度（基于 24 小时时间）
-  const [shadowAngle, setShadowAngle] = useState({ x: 4, y: 8, blur: 12 });
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [tileSizeStyles, setTileSizeStyles] = useState([]);
 
-  // 引用与长按定时器
-  const containerRef = useRef(null);
-  const longPressTimer = useRef(null);
-  const resetBlurTimer = useRef(null);
-
-  // 1. 自动计算当前真实时间的光影角度
+  // 计算 Max:Min = 4:3 的正方形磁贴尺寸数组
   useEffect(() => {
-    const updateLightAndShadow = () => {
-      const now = new Date();
-      const hours = now.getHours() + now.getMinutes() / 60;
-      // 将 24 小时映射为 -180 deg 到 180 deg 的太阳/月亮轨道角度
-      const rad = ((hours - 12) / 12) * Math.PI;
-      const shadowX = Math.round(Math.sin(rad) * 12);
-      const shadowY = Math.round(Math.cos(rad) * 10) + 4;
-      setShadowAngle({ x: shadowX, y: shadowY, blur: 14 });
-    };
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    // 基础最大边长 (依屏幕动态决定)
+    const baseMax = Math.min(Math.max(screenWidth / 4, 180), 280); 
+    const baseMin = baseMax * 0.75; // 4:3 比例的 S_min
 
-    updateLightAndShadow();
-    const interval = setInterval(updateLightAndShadow, 60000); // 每分钟刷新一次光影
-    return () => clearInterval(interval);
+    const styles = ALBUMS.map(() => {
+      // 在 [S_min, S_max] 内随机抽选边长
+      const randomSize = Math.floor(baseMin + Math.random() * (baseMax - baseMin));
+      return {
+        width: `${randomSize}px`,
+        height: `${randomSize}px`, // 100% 绝对正方形
+      };
+    });
+
+    setTileSizeStyles(styles);
   }, []);
 
-  // 2. 批量提取专辑封面主色
-  useEffect(() => {
-    albums.forEach((album) => {
-      extractPixelColor(album.cover, (color) => {
-        setExtractedColors((prev) => ({ ...prev, [album.id]: color }));
-      });
-    });
-    // 进场动画延迟触发生效
-    setTimeout(() => setLoaded(true), 150);
-  }, [albums]);
-
-  // 3. PC端滚轮左右滑动
-  const handleWheel = (e) => {
-    if (containerRef.current) {
-      containerRef.current.scrollLeft += e.deltaY * 1.2;
-    }
-  };
-
-  // 4. 磁贴点击 / 双击 / 自动复原逻辑
-  const handleTileClick = (albumId) => {
-    if (activeTileId === albumId) {
-      // 再次点击（复原前再点一次）：进入音乐播放页
-      router.push(`/music?album=${albumId}`);
-    } else {
-      setActiveTileId(albumId);
-      
-      // 一段时间不动后自动复原蒙版
-      if (resetBlurTimer.current) clearTimeout(resetBlurTimer.current);
-      resetBlurTimer.current = setTimeout(() => {
-        setActiveTileId(null);
-      }, 4500);
-    }
-  };
-
-  // 5. 长按磁贴：提取当前专辑主色更新全站主题色
-  const handleTouchStart = (albumId) => {
-    longPressTimer.current = setTimeout(() => {
-      const color = extractedColors[albumId] || '#a5c9ca';
-      setThemeColor(color);
-      if (navigator.vibrate) navigator.vibrate(50); // 震动反馈
-    }, 700);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-  };
-
   return (
-    <Layout 
-      isMoonlight={isMoonlight} 
-      onToggleTheme={() => setIsMoonlight(!isMoonlight)}
-      themeColor={themeColor}
-    >
+    <Layout>
       <Head>
-        <title>ヨルシカ (Yorushika) - OFFICIAL DISCOGRAPHY</title>
+        <title>INDEX / 音楽泥棒の庭 · ヨルシカ Fan Site</title>
       </Head>
 
-      <div className="w-full min-h-[calc(100vh-80px)] py-6 px-4 sm:px-8 flex flex-col justify-between overflow-hidden">
-        
-        {/* 顶部标头与诗意点缀 */}
-        <div className="max-w-7xl mx-auto w-full mb-4 flex justify-between items-end border-b border-zinc-500/20 pb-3">
+      <div className="max-w-7xl mx-auto px-4 py-8 font-serif">
+        {/* 页头标语 */}
+        <div className="mb-8 border-b border-[#88abac]/20 pb-4 flex justify-between items-end">
           <div>
-            <span className="text-[10px] font-mono tracking-[0.25em] uppercase opacity-50 block mb-1">
-              DISCOGRAPHY / 言の葉と夏の幻
+            <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest uppercase block mb-1">
+              DISCOGRAPHY / 1:1 WP8.1 TILES
             </span>
-            <h1 className="text-base sm:text-xl font-serif tracking-widest font-light">
-              作品集・音楽泥棒の盗作
+            <h1 className="text-xl sm:text-2xl font-medium tracking-wider text-current">
+              ヨルシカ 作品集
             </h1>
           </div>
-          <div className="text-right font-serif text-xs opacity-60 hidden sm:block">
-            <span>「言葉に出来ないから、歌を歌うことにした」</span>
-          </div>
+          <span className="text-[10px] font-mono opacity-50 uppercase hidden sm:inline">
+            SMARTISAN LIGHT & SHADOW ENABLED
+          </span>
         </div>
 
-        {/* 磁贴画廊区域 (手机端任意方向滑动，PC端滚轮左右切换) */}
-        <div 
-          ref={containerRef}
-          onWheel={handleWheel}
-          className="w-full overflow-x-auto overflow-y-auto sm:overflow-y-hidden no-scrollbar py-8 my-auto touch-pan-x touch-pan-y"
-        >
-          {/* 不规则布局网格：
-            - 直角无圆角磁贴（无边框）
-            - 尺寸比例：最大磁贴与最小磁贴为 4:3 
-              手机端：最小 120px，最大 160px (160:120 = 4:3)
-              PC端：  最小 180px，最大 240px (240:180 = 4:3)
-          */}
-          <div className="grid grid-flow-dense grid-rows-3 sm:grid-rows-2 gap-3 sm:gap-5 auto-cols-[120px] sm:auto-cols-[180px] w-max">
-            {albums.map((album, index) => {
-              const isSelected = activeTileId === album.id;
-              const extractedColor = extractedColors[album.id] || themeColor;
+        {/* 磁贴网格容器 (带有 WP8.1 从左至右轴向翻转进场) */}
+        <div className="flex flex-wrap gap-4 sm:gap-6 justify-center items-start py-4 min-h-[60vh]">
+          {ALBUMS.map((album, idx) => {
+            const isSelected = selectedAlbum?.id === album.id;
+            const tileStyle = tileSizeStyles[idx] || { width: '220px', height: '220px' };
 
-              // 根据 4:3 比例控制磁贴尺寸与跨度，制造破碎感与不规则留空
-              const isMaxTile = (index * 7) % 5 === 0;
-              const isMediumTile = (index * 3) % 4 === 0;
-              
-              // 4:3 尺寸计算 (例如 1x1 最小，2x2 或 2x1 跨度)
-              let spanClass = 'col-span-1 row-span-1 w-[120px] h-[120px] sm:w-[180px] sm:h-[180px]';
-              if (isMaxTile) {
-                // 最大磁贴边长 (160px / 240px，保持 4:3)
-                spanClass = 'col-span-2 row-span-2 w-[160px] h-[160px] sm:w-[240px] sm:h-[240px]';
-              } else if (isMediumTile) {
-                spanClass = 'col-span-2 row-span-1 w-[160px] h-[120px] sm:w-[240px] sm:h-[180px]';
-              }
-
-              // 感知光影动态 Shadow & Glow
-              const shadowStyle = isMoonlight ? {
-                // 月光模式：透光缝隙与月光背光
-                boxShadow: `${-shadowAngle.x}px ${shadowAngle.y}px ${shadowAngle.blur}px rgba(165, 201, 202, 0.18)`,
-              } : {
-                // 夏陰模式：感知日光投影
-                boxShadow: `${shadowAngle.x}px ${shadowAngle.y}px ${shadowAngle.blur}px rgba(0, 0, 0, 0.15)`,
-              };
-
-              return (
+            return (
+              <div
+                key={album.id}
+                onClick={() => setSelectedAlbum(isSelected ? null : album)}
+                onDoubleClick={() => {
+                  window.location.href = `/music?album=${album.id}`;
+                }}
+                className="relative cursor-pointer transition-all duration-500 transform hover:-translate-y-1 group select-none animate-in fade-in zoom-in-90 duration-700"
+                style={{
+                  ...tileStyle,
+                  animationDelay: `${idx * 120}ms`, // 从左至右逐个进场
+                  // 坚果 OS 动态光影：悬浮真实物理阴影
+                  boxShadow: isSelected
+                    ? `0 20px 40px ${album.color}66, 0 8px 16px rgba(0,0,0,0.4)`
+                    : '0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.08)',
+                }}
+              >
+                {/* 100% 正方形专辑封面 */}
                 <div
-                  key={album.id}
-                  onClick={() => handleTileClick(album.id)}
-                  onTouchStart={() => handleTouchStart(album.id)}
-                  onTouchEnd={handleTouchEnd}
-                  onMouseDown={() => handleTouchStart(album.id)}
-                  onMouseUp={handleTouchEnd}
-                  style={{
-                    ...shadowStyle,
-                    animationDelay: `${(index % 10) * 80}ms`,
-                  }}
-                  className={`relative cursor-pointer overflow-hidden rounded-none border-none select-none transition-all duration-500 transform ${spanClass} ${
-                    loaded ? 'animate-in fade-in slide-in-from-left-12 duration-700' : 'opacity-0'
+                  className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
+                  style={{ backgroundImage: `url(${album.cover})` }}
+                />
+
+                {/* 坚果 OS 质感光影斜切滤镜overlay */}
+                <div className="absolute inset-0 bg-gradient-to-tr from-black/40 via-transparent to-white/10 pointer-events-none" />
+
+                {/* Google Pixel 吸色高斯模糊蒙版 (选中/悬停时触发) */}
+                <div
+                  className={`absolute inset-0 backdrop-blur-md transition-opacity duration-300 p-4 flex flex-col justify-between ${
+                    isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-90'
                   }`}
+                  style={{
+                    backgroundColor: `${album.color}dd`, // 提取的主色透明度
+                  }}
                 >
-                  {/* 专辑封面底图 */}
-                  <img
-                    src={album.cover}
-                    alt={album.name}
-                    className="w-full h-full object-cover rounded-none transition-transform duration-700 hover:scale-105"
-                  />
-
-                  {/* 磁贴右下角发售日期 */}
-                  <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[8px] font-mono px-1 py-0.5 pointer-events-none">
-                    {album.date}
+                  {/* 编号与日文金句 */}
+                  <div className="flex justify-between items-start font-mono text-white/80">
+                    <span className="text-xs font-bold">[{album.id}]</span>
+                    <span className="text-[9px] uppercase tracking-widest border border-white/20 px-1">
+                      SELECT
+                    </span>
                   </div>
 
-                  {/* Google Pixel 高斯模糊蒙版与提取色渲染：
-                    保留“言の葉”、“夏の幻”等文学引言与中日文诗意文案
-                  */}
-                  <div 
-                    className={`absolute inset-0 backdrop-blur-md transition-all duration-300 p-3 flex flex-col justify-between ${
-                      isSelected 
-                        ? 'opacity-100 bg-black/75' 
-                        : 'opacity-0 hover:opacity-100 bg-black/65'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex justify-between items-center mb-1">
-                        <span 
-                          className="text-[8px] font-mono tracking-widest uppercase block"
-                          style={{ color: extractedColor }}
-                        >
-                          {album.type}
-                        </span>
-                        <span className="text-[8px] font-serif opacity-70 text-zinc-300">
-                          言の葉
-                        </span>
-                      </div>
-                      
-                      <h3 className="text-xs sm:text-sm font-serif font-medium text-white line-clamp-2 leading-tight">
-                        {album.name}
-                      </h3>
+                  <div className="space-y-1 text-white">
+                    <p className="text-xs font-serif italic leading-relaxed font-light">
+                      {album.quote}
+                    </p>
+                    <div className="text-sm font-medium border-t border-white/20 pt-2">
+                      {album.title}
                     </div>
-
-                    <div>
-                      {/* 保留言之叶、夏之幻等金句与日文文案 */}
-                      <p 
-                        className="text-[10px] font-serif italic line-clamp-2 leading-relaxed"
-                        style={{ color: extractedColor }}
-                      >
-                        {album.quote}
-                      </p>
-                      
-                      <div className="mt-2 pt-1 border-t border-white/10 flex justify-between items-center text-[8px] font-mono text-zinc-300">
-                        <span>再点进入播放</span>
-                        <span>長押し色抽</span>
-                      </div>
+                    <div className="text-[10px] font-mono text-white/70">
+                      {album.subtitle}
                     </div>
                   </div>
 
+                  {/* 双击进入播放页文字提示 */}
+                  <div className="text-[9px] font-mono text-white/60 text-right uppercase">
+                    DOUBLE CLICK TO PLAY &gt;
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
 
-        {/* 底部极简交互提示 */}
-        <div className="text-center font-mono text-[9px] opacity-40 py-2">
-          <span className="sm:hidden">← 任意方向滑动刷新磁贴 · 轻触取色 · 再点进入音乐页 →</span>
-          <span className="hidden sm:inline">← 点击选中磁贴 · 滚轮左右切换 · 长按提取主题色 · 双击进入播放页 →</span>
+        {/* 底部文学感底部说明 */}
+        <div className="mt-12 text-center font-mono text-[10px] opacity-40 space-y-1 border-t border-current/10 pt-6">
+          <div>TOUCH / CLICK TILE TO INSPECT · DOUBLE CLICK TO ENTER PLAYER</div>
+          <div>YORUSHIKA FAN SITE · NO EMOJI LITERARY TEXT UI</div>
         </div>
-
       </div>
     </Layout>
   );
