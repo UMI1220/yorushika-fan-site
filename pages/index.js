@@ -1,182 +1,254 @@
-import React, { useState, useEffect } from 'react';
-import Head from 'next/head';
-import Link from 'next/link';
-import Layout from '../components/Layout';
-
-// 模拟夜鹿专辑数据 (实际可结合 /api/albums 接口)
-const ALBUMS = [
-  {
-    id: '01',
-    title: '夏草が邪魔をする',
-    subtitle: '夏草旁骛',
-    quote: '「カトレアの花が咲いた、夏が始まる」',
-    cover: '/covers/01.jpg',
-    color: '#3b5998', // Pixel 吸色备用值
-  },
-  {
-    id: '02',
-    title: '負け犬にアンコールはいらない',
-    subtitle: '败犬重奏',
-    quote: '「只一言、ただ一言でいいから」',
-    cover: '/covers/02.jpg',
-    color: '#8b4513',
-  },
-  {
-    id: '03',
-    title: 'だから僕は音楽を辞めた',
-    subtitle: '所以放弃音乐',
-    quote: '「僕らはただ、あの人の歌を盗み続けていた」',
-    cover: '/covers/03.jpg',
-    color: '#1a365d',
-  },
-  {
-    id: '04',
-    title: 'エルマ',
-    subtitle: 'Elma',
-    quote: '「夕凪の街、君の残したノート」',
-    cover: '/covers/04.jpg',
-    color: '#2d3748',
-  },
-  {
-    id: '05',
-    title: '盗作',
-    subtitle: '盗作',
-    quote: '「音楽の盗作をして生きていた」',
-    cover: '/covers/05.jpg',
-    color: '#742a2a',
-  },
-  {
-    id: '06',
-    title: '幻燈',
-    subtitle: 'Magic Lantern',
-    quote: '「画集に描かれた、夏の幻影」',
-    cover: '/covers/06.jpg',
-    color: '#2c5282',
-  },
-];
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
+import { useAudio } from '../components/Layout';
 
 export default function Home() {
-  const [selectedAlbum, setSelectedAlbum] = useState(null);
-  const [tileSizeStyles, setTileSizeStyles] = useState([]);
+  const router = useRouter();
+  const { setThemeColor, theme } = useAudio();
 
-  // 计算 Max:Min = 4:3 的正方形磁贴尺寸数组
+  const [albums, setAlbums] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedAlbumId, setSelectedAlbumId] = useState(null);
+  const [albumColors, setAlbumColors] = useState({});
+
+  // 容器 & 拖拽/平移控制
+  const containerRef = useRef(null);
+  const isDragging = useRef(false);
+  const startPos = useRef({ x: 0, y: 0 });
+  const scrollPos = useRef({ x: 0, y: 0 });
+
+  // 长按定时器Ref
+  const longPressTimer = useRef(null);
+
+  // ---------------------------------------------------------------------------
+  // 1. 数据获取: 请求 /api/albums 接口
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    // 基础最大边长 (依屏幕动态决定)
-    const baseMax = Math.min(Math.max(screenWidth / 4, 180), 280); 
-    const baseMin = baseMax * 0.75; // 4:3 比例的 S_min
-
-    const styles = ALBUMS.map(() => {
-      // 在 [S_min, S_max] 内随机抽选边长
-      const randomSize = Math.floor(baseMin + Math.random() * (baseMax - baseMin));
-      return {
-        width: `${randomSize}px`,
-        height: `${randomSize}px`, // 100% 绝对正方形
-      };
-    });
-
-    setTileSizeStyles(styles);
+    async function fetchAlbums() {
+      try {
+        const res = await fetch('/api/albums');
+        const data = await res.json();
+        if (data.success && data.albums) {
+          // 为每个专辑预设随机尺寸比例 (4:3 范围内的 S_min ~ S_max 权重)
+          const formatted = data.albums.map((album, idx) => {
+            // 43 个专辑的随机 4:3 布局因子 (1.0 ~ 1.33)
+            const scaleFactor = 0.75 + Math.random() * 0.5; 
+            return {
+              ...album,
+              scaleFactor,
+              // 示例备用歌词/专辑信息（若 API 中未单独带 lyric 字段）
+              lyricSnippet: album.lyricSnippet || album.description || 'カトレアの花が咲いた、夏草に邪魔をされる。',
+              coverImg: album.coverUrl || album.cover || `/covers/${album.id || idx + 1}.jpg`,
+            };
+          });
+          setAlbums(formatted);
+          // 异步提取 Pixel 封面颜色
+          extractColors(formatted);
+        }
+      } catch (err) {
+        console.error('加载专辑数据失败:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAlbums();
   }, []);
 
+  // ---------------------------------------------------------------------------
+  // 2. Google Pixel 算法: 从专辑封面 Canvas 提取主色
+  // ---------------------------------------------------------------------------
+  const extractColors = (albumList) => {
+    albumList.forEach((album) => {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.src = album.coverImg;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 10;
+        canvas.height = 10;
+        ctx.drawImage(img, 0, 0, 10, 10);
+        const data = ctx.getImageData(0, 0, 10, 10).data;
+
+        // 简易 Pixel 取色平均值
+        let r = 0, g = 0, b = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+        }
+        const count = data.length / 4;
+        const hex = `#${Math.floor(r / count).toString(16).padStart(2, '0')}${Math.floor(g / count).toString(16).padStart(2, '0')}${Math.floor(b / count).toString(16).padStart(2, '0')}`;
+        
+        setAlbumColors((prev) => ({ ...prev, [album.id]: hex }));
+      };
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // 3. 多端交互: 桌面端滚轮横向平移 / 移动端 Apple Watch 全向拖拽刷新
+  // ---------------------------------------------------------------------------
+  // 桌面端 Wheel 监听
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e) => {
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
+
+  // 移动端/鼠标 拖拽手势
+  const handleMouseDown = (e) => {
+    isDragging.current = true;
+    startPos.current = { x: e.clientX || e.touches?.[0].clientX, y: e.clientY || e.touches?.[0].clientY };
+    scrollPos.current = { x: containerRef.current.scrollLeft, y: containerRef.current.scrollTop };
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging.current || !containerRef.current) return;
+    const clientX = e.clientX || e.touches?.[0].clientX;
+    const clientY = e.clientY || e.touches?.[0].clientY;
+    const dx = clientX - startPos.current.x;
+    const dy = clientY - startPos.current.y;
+
+    containerRef.current.scrollLeft = scrollPos.current.x - dx;
+    containerRef.current.scrollTop = scrollPos.current.y - dy;
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
+  };
+
+  // ---------------------------------------------------------------------------
+  // 4. 磁贴点击 / 双击 / 长按换色逻辑
+  // ---------------------------------------------------------------------------
+  const handleTileTouchStart = (album) => {
+    // 启动长按定时器 (700ms 触发全站主题换色)
+    longPressTimer.current = setTimeout(() => {
+      const extractedColor = albumColors[album.id] || '#88abac';
+      setThemeColor(extractedColor);
+      if (navigator.vibrate) navigator.vibrate(50); // 震动反馈
+    }, 700);
+  };
+
+  const handleTileTouchEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+  };
+
+  const handleTileClick = (album) => {
+    if (selectedAlbumId === album.id) {
+      // 再次点击/双击：进入音乐播放页
+      router.push(`/music?album=${album.id}`);
+    } else {
+      // 首次选中：弹出取色蒙版
+      setSelectedAlbumId(album.id);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center font-mono text-xs tracking-widest opacity-60">
+        LOADING DISCOGRAPHY...
+      </div>
+    );
+  }
+
   return (
-    <Layout>
-      <Head>
-        <title>INDEX / 音楽泥棒の庭 · ヨルシカ Fan Site</title>
-      </Head>
+    <div
+      ref={containerRef}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onTouchStart={handleMouseDown}
+      onTouchMove={handleMouseMove}
+      onTouchEnd={handleMouseUp}
+      className="w-full h-[calc(100vh-3.5rem)] overflow-auto cursor-grab active:cursor-grabbing select-none p-6 sm:p-12 relative"
+    >
+      {/* ------------------- WP8.1 4:3 绝对直角正方形磁贴网格 ------------------- */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6 max-w-[1800px] mx-auto pb-24">
+        {albums.map((album, index) => {
+          const isSelected = selectedAlbumId === album.id;
+          const pixelColor = albumColors[album.id] || '#88abac';
 
-      <div className="max-w-7xl mx-auto px-4 py-8 font-serif">
-        {/* 页头标语 */}
-        <div className="mb-8 border-b border-[#88abac]/20 pb-4 flex justify-between items-end">
-          <div>
-            <span className="text-[10px] font-mono text-[#a5c9ca] tracking-widest uppercase block mb-1">
-              DISCOGRAPHY / 1:1 WP8.1 TILES
-            </span>
-            <h1 className="text-xl sm:text-2xl font-medium tracking-wider text-current">
-              ヨルシカ 作品集
-            </h1>
-          </div>
-          <span className="text-[10px] font-mono opacity-50 uppercase hidden sm:inline">
-            SMARTISAN LIGHT & SHADOW ENABLED
-          </span>
-        </div>
+          // 故意制造《盗作》留空破碎感：某些索引项产生偏移或占位 gap
+          const isBrokenGap = index % 9 === 4;
 
-        {/* 磁贴网格容器 (带有 WP8.1 从左至右轴向翻转进场) */}
-        <div className="flex flex-wrap gap-4 sm:gap-6 justify-center items-start py-4 min-h-[60vh]">
-          {ALBUMS.map((album, idx) => {
-            const isSelected = selectedAlbum?.id === album.id;
-            const tileStyle = tileSizeStyles[idx] || { width: '220px', height: '220px' };
+          return (
+            <React.Fragment key={album.id || index}>
+              {/* 破碎留空盒 */}
+              {isBrokenGap && <div className="hidden sm:block pointer-events-none" />}
 
-            return (
+              {/* 直角磁贴容器 */}
               <div
-                key={album.id}
-                onClick={() => setSelectedAlbum(isSelected ? null : album)}
-                onDoubleClick={() => {
-                  window.location.href = `/music?album=${album.id}`;
-                }}
-                className="relative cursor-pointer transition-all duration-500 transform hover:-translate-y-1 group select-none animate-in fade-in zoom-in-90 duration-700"
+                onTouchStart={() => handleTileTouchStart(album)}
+                onTouchEnd={handleTileTouchEnd}
+                onMouseDown={() => handleTileTouchStart(album)}
+                onMouseUp={handleTileTouchEnd}
+                onClick={() => handleTileClick(album)}
                 style={{
-                  ...tileStyle,
-                  animationDelay: `${idx * 120}ms`, // 从左至右逐个进场
-                  // 坚果 OS 动态光影：悬浮真实物理阴影
-                  boxShadow: isSelected
-                    ? `0 20px 40px ${album.color}66, 0 8px 16px rgba(0,0,0,0.4)`
-                    : '0 8px 24px rgba(0,0,0,0.12), 0 2px 6px rgba(0,0,0,0.08)',
+                  animationDelay: `${index * 40}ms`,
+                  // 坚果 OS 动态物理日光斜影 / 月光缝隙光晕
+                  boxShadow:
+                    theme === 'natsukage'
+                      ? '12px 12px 24px -6px rgba(0, 0, 0, 0.12), 4px 4px 8px -2px rgba(0,0,0,0.06)'
+                      : '0 0 15px -3px rgba(136, 171, 172, 0.25)',
                 }}
+                className={`group relative aspect-square w-full rounded-none overflow-hidden transition-all duration-300 transform animate-in fade-in zoom-in-90 fill-mode-forwards ${
+                  isSelected ? 'scale-105 z-20' : 'hover:scale-[1.02] z-10'
+                }`}
               >
-                {/* 100% 正方形专辑封面 */}
+                {/* 1. 封面图 */}
                 <div
-                  className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-105"
-                  style={{ backgroundImage: `url(${album.cover})` }}
+                  className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
+                  style={{ backgroundImage: `url(${album.coverImg})` }}
                 />
 
-                {/* 坚果 OS 质感光影斜切滤镜overlay */}
-                <div className="absolute inset-0 bg-gradient-to-tr from-black/40 via-transparent to-white/10 pointer-events-none" />
-
-                {/* Google Pixel 吸色高斯模糊蒙版 (选中/悬停时触发) */}
+                {/* 2. Google Pixel 动态取色高斯模糊蒙版 */}
                 <div
                   className={`absolute inset-0 backdrop-blur-md transition-opacity duration-300 p-4 flex flex-col justify-between ${
-                    isSelected ? 'opacity-100' : 'opacity-0 hover:opacity-90'
+                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                   }`}
                   style={{
-                    backgroundColor: `${album.color}dd`, // 提取的主色透明度
+                    backgroundColor: `${pixelColor}CC`, // 带透明度的高斯蒙版
                   }}
                 >
-                  {/* 编号与日文金句 */}
-                  <div className="flex justify-between items-start font-mono text-white/80">
-                    <span className="text-xs font-bold">[{album.id}]</span>
-                    <span className="text-[9px] uppercase tracking-widest border border-white/20 px-1">
-                      SELECT
-                    </span>
-                  </div>
-
-                  <div className="space-y-1 text-white">
-                    <p className="text-xs font-serif italic leading-relaxed font-light">
-                      {album.quote}
+                  {/* 顶部: 专辑歌词与配词 */}
+                  <div className="space-y-1">
+                    <p className="font-serif text-xs font-bold leading-relaxed line-clamp-3 text-zinc-950">
+                      「{album.lyricSnippet}」
                     </p>
-                    <div className="text-sm font-medium border-t border-white/20 pt-2">
-                      {album.title}
-                    </div>
-                    <div className="text-[10px] font-mono text-white/70">
-                      {album.subtitle}
-                    </div>
                   </div>
 
-                  {/* 双击进入播放页文字提示 */}
-                  <div className="text-[9px] font-mono text-white/60 text-right uppercase">
-                    DOUBLE CLICK TO PLAY &gt;
+                  {/* 底部: 专辑名称与年份/曲目数信息 */}
+                  <div className="border-t border-zinc-950/20 pt-2 text-zinc-950 font-mono">
+                    <p className="text-xs font-bold truncate">{album.title || album.name}</p>
+                    <p className="text-[10px] opacity-75">
+                      {album.releaseDate || 'YORUSHIKA'} • {album.tracksCount || 'DISC'}
+                    </p>
+                    <p className="text-[9px] tracking-tighter opacity-60 mt-1">
+                      [ CLICK AGAIN TO PLAY ]
+                    </p>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
 
-        {/* 底部文学感底部说明 */}
-        <div className="mt-12 text-center font-mono text-[10px] opacity-40 space-y-1 border-t border-current/10 pt-6">
-          <div>TOUCH / CLICK TILE TO INSPECT · DOUBLE CLICK TO ENTER PLAYER</div>
-          <div>YORUSHIKA FAN SITE · NO EMOJI LITERARY TEXT UI</div>
-        </div>
+                {/* WP8.1 磁贴右下角微缩标题 (未选中时常驻) */}
+                {!isSelected && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2 text-white font-mono text-[10px] truncate opacity-90 group-hover:opacity-0 transition-opacity">
+                    {album.title || album.name}
+                  </div>
+                )}
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
-    </Layout>
+    </div>
   );
 }
