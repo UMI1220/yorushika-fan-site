@@ -2,252 +2,308 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAudio } from '../components/Layout';
 
-export default function Home() {
-  const router = useRouter();
-  const { setThemeColor, theme } = useAudio();
+// -----------------------------------------------------------------------------
+// 辅助函数: 实时计算坚果 OS 动态感知光影 (根据现实时间计算 Sunlight/Moonlight 偏移)
+// -----------------------------------------------------------------------------
+function getDynamicShadowStyle(theme) {
+  const now = new Date();
+  const hours = now.getHours() + now.getMinutes() / 60;
 
-  const [albums, setAlbums] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedAlbumId, setSelectedAlbumId] = useState(null);
-  const [albumColors, setAlbumColors] = useState({});
+  if (theme === 'gekkou') {
+    // [ 月光 ] 模式：极简缝隙月光深邃阴影
+    return {
+      boxShadow: '0px 12px 28px rgba(0, 0, 0, 0.75), 0px 4px 10px rgba(0, 0, 0, 0.5)',
+    };
+  }
 
-  // 容器 & 拖拽/平移控制
-  const containerRef = useRef(null);
-  const isDragging = useRef(false);
-  const startPos = useRef({ x: 0, y: 0 });
-  const scrollPos = useRef({ x: 0, y: 0 });
+  // [ 夏陰 ] 模式：随现实时刻平滑变化的光影角度 (晨光 -> 正午 -> 夕阳)
+  const angle = ((hours - 6) / 12) * Math.PI; // 6点到18点弧度变化
+  const offsetX = Math.cos(angle) * 12;
+  const offsetY = Math.sin(angle) * 14 + 6;
 
-  // 长按定时器Ref
-  const longPressTimer = useRef(null);
+  return {
+    boxShadow: `${offsetX.toFixed(1)}px ${offsetY.toFixed(1)}px 24px rgba(0, 0, 0, 0.12), ${ (offsetX * 0.5).toFixed(1) }px ${ (offsetY * 0.5).toFixed(1) }px 8px rgba(0, 0, 0, 0.08)`,
+  };
+}
 
-  // ---------------------------------------------------------------------------
-  // 1. 数据获取: 请求 /api/albums 接口
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    async function fetchAlbums() {
-      try {
-        const res = await fetch('/api/albums');
-        const data = await res.json();
-        if (data.success && data.albums) {
-          // 为每个专辑预设随机尺寸比例 (4:3 范围内的 S_min ~ S_max 权重)
-          const formatted = data.albums.map((album, idx) => {
-            // 43 个专辑的随机 4:3 布局因子 (1.0 ~ 1.33)
-            const scaleFactor = 0.75 + Math.random() * 0.5; 
-            return {
-              ...album,
-              scaleFactor,
-              // 示例备用歌词/专辑信息（若 API 中未单独带 lyric 字段）
-              lyricSnippet: album.lyricSnippet || album.description || 'カトレアの花が咲いた、夏草に邪魔をされる。',
-              coverImg: album.coverUrl || album.cover || `/covers/${album.id || idx + 1}.jpg`,
-            };
-          });
-          setAlbums(formatted);
-          // 异步提取 Pixel 封面颜色
-          extractColors(formatted);
-        }
-      } catch (err) {
-        console.error('加载专辑数据失败:', err);
-      } finally {
-        setLoading(false);
+// -----------------------------------------------------------------------------
+// 辅助函数: Canvas 动态 Monet 颜色提取 (提取专辑封面主色用于蒙版文字)
+// -----------------------------------------------------------------------------
+function extractDominantColor(imgUrl, callback) {
+  const img = new Image();
+  img.crossOrigin = 'Anonymous';
+  img.src = imgUrl;
+  img.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 10;
+      canvas.height = 10;
+      ctx.drawImage(img, 0, 0, 10, 10);
+      const data = ctx.getImageData(0, 0, 10, 10).data;
+      let r = 0, g = 0, b = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        r += data[i];
+        g += data[i + 1];
+        b += data[i + 2];
       }
+      r = Math.floor(r / (data.length / 4));
+      g = Math.floor(g / (data.length / 4));
+      b = Math.floor(b / (data.length / 4));
+      // 若提取颜色过淡，适当降低亮度提升对比度
+      callback(`rgb(${r}, ${g}, ${b})`);
+    } catch (e) {
+      callback('#88abac'); // 降级兜底月光青
     }
-    fetchAlbums();
+  };
+  img.onerror = () => callback('#88abac');
+}
+
+// -----------------------------------------------------------------------------
+// 主组件: HomePage
+// -----------------------------------------------------------------------------
+export default function HomePage() {
+  const router = useRouter();
+  const { theme, setThemeColor } = useAudio();
+
+  const [allAlbums, setAllAlbums] = useState([]);      // 全量专辑库
+  const [displayedTiles, setDisplayedTiles] = useState([]); // 当前呈现在首页的磁贴数据
+  const [loading, setLoading] = useState(true);
+  const [hoveredId, setHoveredId] = useState(null);    // 当前悬停/选中的磁贴 ID
+  const [tileColors, setTileColors] = useState({});    // 提取的主色集合 map { [id]: color }
+  const [isFadingOut, setIsFadingOut] = useState(false);
+
+  // 长按定时器 Ref
+  const longPressTimer = useRef(null);
+  // 移动端 Touch 坐标 Ref (用于自由拖拽刷新)
+  const touchStartPos = useRef({ x: 0, y: 0 });
+
+  // 1. 初始化拉取全量专辑摘要
+  useEffect(() => {
+    fetchAlbumsSummary();
   }, []);
 
-  // ---------------------------------------------------------------------------
-  // 2. Google Pixel 算法: 从专辑封面 Canvas 提取主色
-  // ---------------------------------------------------------------------------
-  const extractColors = (albumList) => {
-    albumList.forEach((album) => {
-      const img = new Image();
-      img.crossOrigin = 'Anonymous';
-      img.src = album.coverImg;
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = 10;
-        canvas.height = 10;
-        ctx.drawImage(img, 0, 0, 10, 10);
-        const data = ctx.getImageData(0, 0, 10, 10).data;
+  const fetchAlbumsSummary = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/albums?summary=true');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setAllAlbums(json.data);
+        generateTiles(json.data);
+      }
+    } catch (err) {
+      console.error('Fetch Albums Error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // 简易 Pixel 取色平均值
-        let r = 0, g = 0, b = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          r += data[i];
-          g += data[i + 1];
-          b += data[i + 2];
-        }
-        const count = data.length / 4;
-        const hex = `#${Math.floor(r / count).toString(16).padStart(2, '0')}${Math.floor(g / count).toString(16).padStart(2, '0')}${Math.floor(b / count).toString(16).padStart(2, '0')}`;
-        
-        setAlbumColors((prev) => ({ ...prev, [album.id]: hex }));
+  // 2. “不重复抽尽”核心抽取逻辑
+  const generateTiles = (albumPool) => {
+    if (!albumPool || albumPool.length === 0) return;
+
+    // 读取 sessionStorage 中已访问过的 visitedAlbumIds
+    let visited = [];
+    try {
+      visited = JSON.parse(sessionStorage.getItem('visitedAlbumIds') || '[]');
+    } catch (e) {
+      visited = [];
+    }
+
+    // 过滤出未访问过的专辑
+    let unvisited = albumPool.filter(a => !visited.includes(a.id));
+
+    // 如果未访问池不够或已空，清空记录重新开启新一轮全遍历
+    if (unvisited.length === 0) {
+      visited = [];
+      sessionStorage.setItem('visitedAlbumIds', JSON.stringify([]));
+      unvisited = [...albumPool];
+    }
+
+    // 计算当前设备适配的磁贴渲染数量 (例如: 6 ~ 9 个)
+    const tileCount = Math.min(6, unvisited.length);
+
+    // 从未访问池中随机抽取指定数量专辑
+    const shuffled = [...unvisited].sort(() => 0.5 - Math.random());
+    const selectedAlbums = shuffled.slice(0, tileCount);
+
+    // 记录最新已访问的专辑 ID
+    const newlyVisited = [...visited, ...selectedAlbums.map(a => a.id)];
+    sessionStorage.setItem('visitedAlbumIds', JSON.stringify(newlyVisited));
+
+    // 3. 计算 4:3 比例的不规则直角磁贴排布
+    const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    const maxTileSize = screenWidth < 640 ? 160 : 220; // S_max
+    const minTileSize = Math.floor(maxTileSize * 0.75); // S_min (4:3)
+
+    const formattedTiles = selectedAlbums.map((album, idx) => {
+      // 随机尺寸在 [S_min, S_max] 之间
+      const size = Math.floor(Math.random() * (maxTileSize - minTileSize + 1)) + minTileSize;
+      
+      // 提取专辑封面主色用于蒙版
+      if (album.cover_url) {
+        extractDominantColor(album.cover_url, (extractedColor) => {
+          setTileColors(prev => ({ ...prev, [album.id]: extractedColor }));
+        });
+      }
+
+      return {
+        ...album,
+        size,
+        // WP8.1 3D 轴向进场动画延迟
+        animDelay: idx * 80,
       };
     });
+
+    setDisplayedTiles(formattedTiles);
   };
 
-  // ---------------------------------------------------------------------------
-  // 3. 多端交互: 桌面端滚轮横向平移 / 移动端 Apple Watch 全向拖拽刷新
-  // ---------------------------------------------------------------------------
-  // 桌面端 Wheel 监听
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
+  // 4. 刷新机制 (旧磁贴淡出 -> 新抽取)
+  const triggerRefresh = () => {
+    if (isFadingOut || allAlbums.length === 0) return;
+    setIsFadingOut(true);
+    setTimeout(() => {
+      generateTiles(allAlbums);
+      setIsFadingOut(false);
+    }, 300);
+  };
 
-    const handleWheel = (e) => {
-      e.preventDefault();
-      el.scrollLeft += e.deltaY;
+  // 5. 桌面端滚轮横向刷新逻辑
+  const handleWheel = (e) => {
+    if (Math.abs(e.deltaX) > 40 || Math.abs(e.deltaY) > 40) {
+      triggerRefresh();
+    }
+  };
+
+  // 6. 移动端全向自由拖拽刷新
+  const handleTouchStart = (e) => {
+    touchStartPos.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
     };
-
-    el.addEventListener('wheel', handleWheel, { passive: false });
-    return () => el.removeEventListener('wheel', handleWheel);
-  }, []);
-
-  // 移动端/鼠标 拖拽手势
-  const handleMouseDown = (e) => {
-    isDragging.current = true;
-    startPos.current = { x: e.clientX || e.touches?.[0].clientX, y: e.clientY || e.touches?.[0].clientY };
-    scrollPos.current = { x: containerRef.current.scrollLeft, y: containerRef.current.scrollTop };
   };
 
-  const handleMouseMove = (e) => {
-    if (!isDragging.current || !containerRef.current) return;
-    const clientX = e.clientX || e.touches?.[0].clientX;
-    const clientY = e.clientY || e.touches?.[0].clientY;
-    const dx = clientX - startPos.current.x;
-    const dy = clientY - startPos.current.y;
-
-    containerRef.current.scrollLeft = scrollPos.current.x - dx;
-    containerRef.current.scrollTop = scrollPos.current.y - dy;
+  const handleTouchEnd = (e) => {
+    const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartPos.current.y;
+    // 滑动超过 80px 触发刷新
+    if (Math.hypot(deltaX, deltaY) > 80) {
+      triggerRefresh();
+    }
   };
 
-  const handleMouseUp = () => {
-    isDragging.current = false;
-  };
-
-  // ---------------------------------------------------------------------------
-  // 4. 磁贴点击 / 双击 / 长按换色逻辑
-  // ---------------------------------------------------------------------------
+  // 7. 点击 / 双击 / 长按交互规约
   const handleTileTouchStart = (album) => {
-    // 启动长按定时器 (700ms 触发全站主题换色)
     longPressTimer.current = setTimeout(() => {
-      const extractedColor = albumColors[album.id] || '#88abac';
-      setThemeColor(extractedColor);
-      if (navigator.vibrate) navigator.vibrate(50); // 震动反馈
-    }, 700);
+      // 长按：提取该专辑主色，覆盖替换全站主题色 (themeColor)
+      const color = tileColors[album.id] || '#88abac';
+      setThemeColor(color);
+    }, 800);
   };
 
   const handleTileTouchEnd = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-    }
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
   };
 
-  const handleTileClick = (album) => {
-    if (selectedAlbumId === album.id) {
-      // 再次点击/双击：进入音乐播放页
-      router.push(`/music?album=${album.id}`);
-    } else {
-      // 首次选中：弹出取色蒙版
-      setSelectedAlbumId(album.id);
-    }
+  const handleTileDoubleClick = (albumId) => {
+    // 双击带参跳转播放页
+    router.push(`/music?album=${albumId}`);
   };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center font-mono text-xs tracking-widest opacity-60">
-        LOADING DISCOGRAPHY...
-      </div>
-    );
-  }
 
   return (
     <div
-      ref={containerRef}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onTouchStart={handleMouseDown}
-      onTouchMove={handleMouseMove}
-      onTouchEnd={handleMouseUp}
-      className="w-full h-[calc(100vh-3.5rem)] overflow-auto cursor-grab active:cursor-grabbing select-none p-6 sm:p-12 relative"
+      onWheel={handleWheel}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="min-h-[calc(100vh-3.5rem)] px-4 py-8 max-w-7xl mx-auto flex flex-col justify-center items-center select-none"
     >
-      {/* ------------------- WP8.1 4:3 绝对直角正方形磁贴网格 ------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6 max-w-[1800px] mx-auto pb-24">
-        {albums.map((album, index) => {
-          const isSelected = selectedAlbumId === album.id;
-          const pixelColor = albumColors[album.id] || '#88abac';
+      {/* 顶部简短提示 */}
+      <div className="w-full flex justify-between items-center mb-6 font-mono text-[11px] opacity-60">
+        <span>[ INDEX / TILES ARCHIVE ]</span>
+        <button
+          type="button"
+          onClick={triggerRefresh}
+          className="hover:underline focus:outline-none"
+        >
+          [ REFRESH ]
+        </button>
+      </div>
 
-          // 故意制造《盗作》留空破碎感：某些索引项产生偏移或占位 gap
-          const isBrokenGap = index % 9 === 4;
+      {loading ? (
+        <div className="font-mono text-xs tracking-widest opacity-60 py-20 animate-pulse">
+          LOADING ARCHIVES...
+        </div>
+      ) : (
+        /* ------------------- WP8.1 无边框正方形磁贴墙 ------------------- */
+        <div
+          className={`w-full flex flex-wrap justify-center items-center gap-4 sm:gap-6 transition-opacity duration-300 ${
+            isFadingOut ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+          }`}
+        >
+          {displayedTiles.map((album) => {
+            const dynamicShadow = getDynamicShadowStyle(theme);
+            const isHovered = hoveredId === album.id;
+            const dominantColor = tileColors[album.id] || '#88abac';
 
-          return (
-            <React.Fragment key={album.id || index}>
-              {/* 破碎留空盒 */}
-              {isBrokenGap && <div className="hidden sm:block pointer-events-none" />}
-
-              {/* 直角磁贴容器 */}
+            return (
               <div
+                key={album.id}
+                style={{
+                  width: `${album.size}px`,
+                  height: `${album.size}px`,
+                  ...dynamicShadow,
+                  animationDelay: `${album.animDelay}ms`,
+                }}
+                onMouseEnter={() => setHoveredId(album.id)}
+                onMouseLeave={() => setHoveredId(null)}
                 onTouchStart={() => handleTileTouchStart(album)}
                 onTouchEnd={handleTileTouchEnd}
-                onMouseDown={() => handleTileTouchStart(album)}
-                onMouseUp={handleTileTouchEnd}
-                onClick={() => handleTileClick(album)}
-                style={{
-                  animationDelay: `${index * 40}ms`,
-                  // 坚果 OS 动态物理日光斜影 / 月光缝隙光晕
-                  boxShadow:
-                    theme === 'natsukage'
-                      ? '12px 12px 24px -6px rgba(0, 0, 0, 0.12), 4px 4px 8px -2px rgba(0,0,0,0.06)'
-                      : '0 0 15px -3px rgba(136, 171, 172, 0.25)',
-                }}
-                className={`group relative aspect-square w-full rounded-none overflow-hidden transition-all duration-300 transform animate-in fade-in zoom-in-90 fill-mode-forwards ${
-                  isSelected ? 'scale-105 z-20' : 'hover:scale-[1.02] z-10'
-                }`}
+                onClick={() => setHoveredId(album.id)}
+                onDoubleClick={() => handleTileDoubleClick(album.id)}
+                className="relative bg-zinc-800 rounded-none overflow-hidden cursor-pointer transition-all duration-300 transform hover:-translate-y-1 active:scale-95 animate-in fade-in zoom-in-90"
               >
-                {/* 1. 封面图 */}
+                {/* 专辑封面背景 */}
                 <div
-                  className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
-                  style={{ backgroundImage: `url(${album.coverImg})` }}
+                  className="w-full h-full bg-cover bg-center rounded-none"
+                  style={{ backgroundImage: `url(${album.cover_url || '/01.jpg'})` }}
                 />
 
-                {/* 2. Google Pixel 动态取色高斯模糊蒙版 */}
+                {/* 悬停/点击：Google Pixel Monet 模糊蒙版 & 数据库代表歌词 (representative_lyric) */}
                 <div
-                  className={`absolute inset-0 backdrop-blur-md transition-opacity duration-300 p-4 flex flex-col justify-between ${
-                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                  className={`absolute inset-0 backdrop-blur-md bg-black/40 transition-opacity duration-300 p-3 flex flex-col justify-between rounded-none ${
+                    isHovered ? 'opacity-100' : 'opacity-0'
                   }`}
-                  style={{
-                    backgroundColor: `${pixelColor}CC`, // 带透明度的高斯蒙版
-                  }}
                 >
-                  {/* 顶部: 专辑歌词与配词 */}
-                  <div className="space-y-1">
-                    <p className="font-serif text-xs font-bold leading-relaxed line-clamp-3 text-zinc-950">
-                      「{album.lyricSnippet}」
+                  {/* 顶部: 专辑名称与年份 */}
+                  <div className="font-mono text-[10px] tracking-wider text-white/80 border-b border-white/20 pb-1 flex justify-between">
+                    <span className="truncate max-w-[80%]">{album.title}</span>
+                    <span>{album.release_date ? album.release_date.substring(0, 4) : ''}</span>
+                  </div>
+
+                  {/* 中间: 调取数据库 representative_lyric 字段展现日文金句 */}
+                  <div className="my-auto font-serif text-xs leading-relaxed text-center px-1 font-medium">
+                    <p style={{ color: dominantColor }}>
+                      {album.representative_lyric || '言の葉の奥に、夏が咲いている。'}
                     </p>
                   </div>
 
-                  {/* 底部: 专辑名称与年份/曲目数信息 */}
-                  <div className="border-t border-zinc-950/20 pt-2 text-zinc-950 font-mono">
-                    <p className="text-xs font-bold truncate">{album.title || album.name}</p>
-                    <p className="text-[10px] opacity-75">
-                      {album.releaseDate || 'YORUSHIKA'} • {album.tracksCount || 'DISC'}
-                    </p>
-                    <p className="text-[9px] tracking-tighter opacity-60 mt-1">
-                      [ CLICK AGAIN TO PLAY ]
-                    </p>
+                  {/* 底部: 歌曲数量与双击提示 */}
+                  <div className="font-mono text-[9px] text-white/60 flex justify-between">
+                    <span>{album.song_count ? `${album.song_count} TRACKS` : 'YORUSHIKA'}</span>
+                    <span>[ DOUBLE CLICK ]</span>
                   </div>
                 </div>
-
-                {/* WP8.1 磁贴右下角微缩标题 (未选中时常驻) */}
-                {!isSelected && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-2 text-white font-mono text-[10px] truncate opacity-90 group-hover:opacity-0 transition-opacity">
-                    {album.title || album.name}
-                  </div>
-                )}
               </div>
-            </React.Fragment>
-          );
-        })}
+            );
+          })}
+        </div>
+      )}
+
+      {/* 底部操作指南提示 */}
+      <div className="mt-12 text-center font-mono text-[10px] opacity-40 space-y-1">
+        <p>[ SWIPE / WHEEL TO REFRESH ]</p>
+        <p>[ DOUBLE CLICK TO PLAY • LONG PRESS TO APPLY THEME COLOR ]</p>
       </div>
     </div>
   );
