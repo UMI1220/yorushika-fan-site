@@ -1,1016 +1,1288 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
-import Link from 'next/link';
-import { useAudio } from '../components/Layout';
+import Layout, { useAudio } from '../components/Layout';
 
-// -----------------------------------------------------------------------------
-// 1. 坚果 OS 动态物理光影计算 (用于磁贴、专辑封面与唱片)
-// -----------------------------------------------------------------------------
-function getDynamicShadowStyle(theme) {
-  const now = new Date();
-  const hours = now.getHours() + now.getMinutes() / 60;
-
-  if (theme === 'gekkou') {
-    return {
-      boxShadow: '0px 14px 32px rgba(0, 0, 0, 0.85), 0px 4px 12px rgba(0, 0, 0, 0.6)',
-    };
-  }
-
-  const angle = ((hours - 6) / 12) * Math.PI;
-  const offsetX = Math.cos(angle) * 12;
-  const offsetY = Math.sin(angle) * 14 + 6;
-
-  return {
-    boxShadow: `${offsetX.toFixed(1)}px ${offsetY.toFixed(1)}px 24px rgba(0, 0, 0, 0.15), ${(offsetX * 0.5).toFixed(1)}px ${(offsetY * 0.5).toFixed(1)}px 8px rgba(0, 0, 0, 0.1)`,
-  };
-}
-
-// -----------------------------------------------------------------------------
-// 2. LRC 双语歌词解析器 (合流主歌词与副译文，末尾追加贡献者署名)
-// -----------------------------------------------------------------------------
-function parseLRC(lrcText, contributor, email) {
-  if (!lrcText) return [];
-  const lines = lrcText.split('\n');
-  const timeMap = new Map();
-
-  lines.forEach((line) => {
-    const match = line.match(/\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)/);
-    if (match) {
-      const minutes = parseInt(match[1], 10);
-      const seconds = parseInt(match[2], 10);
-      const ms = parseInt(match[3].padEnd(3, '0'), 10);
-      const time = minutes * 60 + seconds + ms / 1000;
-      const text = match[4].trim();
-
-      if (timeMap.has(time)) {
-        timeMap.set(time, { main: timeMap.get(time).main, sub: text });
-      } else {
-        timeMap.set(time, { main: text, sub: '' });
-      }
-    }
-  });
-
-  const parsed = Array.from(timeMap.entries())
-    .map(([time, value]) => ({ time, ...value }))
-    .sort((a, b) => a.time - b.time);
-
-  // 末尾渲染贡献者署名
-  if (contributor || email) {
-    const lastTime = parsed.length > 0 ? parsed[parsed.length - 1].time + 3 : 0;
-    parsed.push({
-      time: lastTime,
-      main: `[ 歌詞提供：${contributor || '匿名'} ${email ? `<${email}>` : ''} ]`,
-      sub: '',
-    });
-  }
-
-  return parsed;
-}
-// 补充 formatTime 函数
-function formatTime(seconds) {
-  if (!seconds || isNaN(seconds)) return '00:00';
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-}
-
-// -----------------------------------------------------------------------------
-// 核心页面组件: MusicPage
-// -----------------------------------------------------------------------------
 export default function MusicPage() {
   const router = useRouter();
   const { album: queryAlbumId } = router.query;
 
+  // 全局 Audio & UI 上下文
   const {
-    isPlaying,
+    theme,
+    themeColor,
+    shadowStyle,
+    setThemeColor,
     currentTrack,
     currentAlbum,
+    isPlaying,
     togglePlay,
     playTrack,
     playNext,
     playPrev,
     progress,
     currentTime,
+    duration,
     seek,
-    theme,
-    themeColor,
-    playlist,
   } = useAudio();
 
-  // ------------------- 状态定义 -------------------
-  // 入口场景判断与 UI 模式
-  const [fromMenu, setFromMenu] = useState(false);
-  const [showPlayerUI, setShowPlayerUI] = useState(false);
+  // ---------------------------------------------------------------------------
+  // 1. 页面核心状态管理 (State Management)
+  // ---------------------------------------------------------------------------
+  // 自白卡片 Modal (首次进播放器或切换专辑时显示)
+  const [showConfession, setShowConfession] = useState(false);
 
-  // 专辑列表磁贴 (1:1 首页同款磁贴)
-  const [albums, setAlbums] = useState([]);
-  const [selectedAlbum, setSelectedAlbum] = useState(null);
-  const [albumSongs, setAlbumSongs] = useState([]);
-  const [activeTab, setActiveTab] = useState('player'); // 移动端: 'details' | 'player' | 'comments'
+  // 移动端三页 Swiper 索引 (0: 详情页 | 1: 播放器页 | 2: 评论页)
+  const [activePageIndex, setActivePageIndex] = useState(1);
 
-  // 版权自白卡片《音楽泥棒の自白》
-  const [showConfessionModal, setShowConfessionModal] = useState(true);
+  // 数据列表状态
+  const [albums, setAlbums] = useState([]);               // 导航菜单进入时的全量专辑磁贴
+  const [selectedAlbum, setSelectedAlbum] = useState(null); // 当前选中的专辑对象
+  const [songList, setSongList] = useState([]);           // 选中的专辑歌曲列表
+  const [comments, setComments] = useState([]);           // 当前歌曲的评论列表
+  const [expandedCommentId, setExpandedCommentId] = useState(null); // 当前展开回复的评论ID
+  const [replies, setReplies] = useState([]);             // 当前展开的回复列表
 
-  // 封面 3 模式: 'square' | 'disc' | 'rotate'
-  const [coverMode, setCoverMode] = useState('square');
-  const [showCoverModeMenu, setShowCoverModeMenu] = useState(false);
+  // 播放器状态
+  const [mediaMode, setMediaMode] = useState('audio');    // 'audio' | 'mv'
+  const [coverMode, setCoverMode] = useState(1);          // 1: 方形光影 | 2: 静态唱片 | 3: 旋转唱片
+  const [isImmersive, setIsImmersive] = useState(false);  // 全屏沉浸歌词模式
+  const [lyrics, setLyrics] = useState([]);               // 解析后的歌词数组 [{ time, jp, cn }]
+  const [lyricContributor, setLyricContributor] = useState(''); // 歌词贡献者
 
-  // 歌词 3 模式与沉浸全屏
-  const [lyrics, setLyrics] = useState([]);
-  const [currentLyricIndex, setCurrentLyricIndex] = useState(0);
-  const [isImmersionMode, setIsImmersionMode] = useState(false);
-  const lyricContainerRef = useRef(null);
+  // 评论提交表单
+  const [commentInput, setCommentInput] = useState('');
+  const [nicknameInput, setNicknameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState('');
 
-  // 歌单 [ LIST ] 弹窗与播放模式
-  const [showListModal, setShowListModal] = useState(false);
-  const [playMode, setPlayMode] = useState('LOOP');
+  // ---------------------------------------------------------------------------
+  // 2. Swiper 触摸手势防御 (彻底防御纵向/横向滑动冲突与手势失效)
+  // ---------------------------------------------------------------------------
+  const touchStartPos = useRef({ x: 0, y: 0 });
+  const isSwiping = useRef(false);
 
-  // 评论区状态与回复展开
-  const [comments, setComments] = useState([]);
-  const [selectedComment, setSelectedComment] = useState(null);
-  const [replies, setReplies] = useState([]);
+  const handleTouchStart = (e) => {
+    touchStartPos.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+    isSwiping.current = true;
+  };
 
-  // 评论输入框表单
-  const [commentNickname, setCommentNickname] = useState('');
-  const [commentPassword, setCommentPassword] = useState('');
-  const [commentText, setCommentText] = useState('');
-  const [commentFile, setCommentFile] = useState(null);
-  const [replyToUser, setReplyToUser] = useState('');
+  const handleTouchMove = (e) => {
+    if (!isSwiping.current) return;
+    const deltaX = e.touches[0].clientX - touchStartPos.current.x;
+    const deltaY = e.touches[0].clientY - touchStartPos.current.y;
 
-  // 评论/回复删除交互状态
-  const [deletingCommentId, setDeletingCommentId] = useState(null);
-  const [deletePasswordInput, setDeletePasswordInput] = useState('');
-  const [deleteErrorMsg, setDeleteErrorMsg] = useState(null);
-
-  // 无音源提示 Modal
-  const [noAudioSong, setNoAudioSong] = useState(null);
-
-  // ------------------- 1. 入口判别与拉取逻辑 -------------------
-  useEffect(() => {
-    fetchAlbumsWall();
-
-    if (queryAlbumId) {
-      // 【场景二：从首页专辑磁贴双击跳转进入】
-      setFromMenu(false);
-      setShowPlayerUI(true);
-      loadAlbumAndPlayRandom(queryAlbumId);
-    } else {
-      // 【场景一：从导航 MENU 进入】
-      setFromMenu(true);
-      setShowPlayerUI(false);
+    // 手势矢量判定：当水平位移明显大于垂直位移，判定为切页手势
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 20) {
+      // 阻止浏览器默认橡胶回弹与页面下拉刷新，确保 Swiper 切页丝滑
+      if (e.cancelable) e.preventDefault();
     }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (!isSwiping.current) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartPos.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartPos.current.y;
+
+    // 水平划动阈值 > 50px 且垂直偏离小，触发 Swiper 切页
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (deltaX < 0 && activePageIndex < 2) {
+        setActivePageIndex((prev) => prev + 1); // 划向右侧页面
+      } else if (deltaX > 0 && activePageIndex > 0) {
+        setActivePageIndex((prev) => prev - 1); // 划向左侧页面
+      }
+    }
+    isSwiping.current = false;
+  };
+
+  // ---------------------------------------------------------------------------
+  // 3. 数据拉取与自白 Modal 触发逻辑 (符合《拉取上传删除逻辑规范》)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    async function initPageData() {
+      if (queryAlbumId) {
+        // 情况二：从首页专辑进入 -> 展示自白 Modal，拉取专辑与全量歌曲，并自动开始播放
+        setShowConfession(true);
+        try {
+          const albumRes = await fetch(`/api/albums/${queryAlbumId}`);
+          const albumData = await albumRes.json();
+          if (albumData && albumData.album) {
+            setSelectedAlbum(albumData.album);
+            setSongList(albumData.songs || []);
+            // 若包含音源，默认选第一首开始播放
+            const playableTracks = (albumData.songs || []).filter((s) => s.audio_url);
+            if (playableTracks.length > 0) {
+              playTrack(playableTracks[0], albumData.album, playableTracks);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load album from query:', e);
+        }
+      } else {
+        // 情况一：从导航菜单 [ MUSIC ] 进入 -> 初始不显示详情卡片，背景呈白色，拉取专辑磁贴列表
+        try {
+          const res = await fetch('/api/albums?summary=true');
+          const data = await res.json();
+          if (data && Array.isArray(data.albums)) {
+            setAlbums(data.albums);
+          }
+        } catch (e) {
+          console.error('Failed to load albums summary:', e);
+        }
+      }
+    }
+    initPageData();
   }, [queryAlbumId]);
 
-  // 拉取专辑列表磁贴墙
-  const fetchAlbumsWall = async () => {
-    try {
-      const res = await fetch('/api/albums?summary=true');
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setAlbums(json.data);
-      }
-    } catch (err) {
-      console.error('Fetch Albums Wall Error:', err);
-    }
-  };
-
-  // 【场景二】：拉取专辑信息并随机播放一首
-  const loadAlbumAndPlayRandom = async (albumId) => {
-    try {
-      const res = await fetch(`/api/albums/${albumId}`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        const albumData = json.data;
-        setSelectedAlbum(albumData);
-        const songs = albumData.songs || [];
-        setAlbumSongs(songs);
-
-        const playableSongs = songs.filter((s) => s.audio_url || s.audioUrl);
-        if (playableSongs.length > 0) {
-          const randomSong = playableSongs[Math.floor(Math.random() * playableSongs.length)];
-          playTrack(randomSong, albumData, playableSongs);
-          fetchLyricsAndComments(randomSong.id);
-        }
-      }
-    } catch (err) {
-      console.error('Load Album Error:', err);
-    }
-  };
-
-  // 【场景一】：点击专辑磁贴展开详情卡片
-  const handleSelectAlbumTile = async (album) => {
-    if (selectedAlbum?.id === album.id) {
-      setSelectedAlbum(null);
-      return;
-    }
-    setSelectedAlbum(album);
-    try {
-      const res = await fetch(`/api/albums/${album.id}`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        setAlbumSongs(json.data.songs || []);
-      }
-    } catch (err) {
-      console.error('Fetch Album Songs Error:', err);
-    }
-  };
-
-  // 点击歌曲触发播放或无音源拦截
-  const handleSongClick = (song) => {
-    const audioUrl = song.audio_url || song.audioUrl;
-    if (!audioUrl) {
-      setNoAudioSong(song);
-      return;
-    }
-    setShowPlayerUI(true);
-    playTrack(song, selectedAlbum, albumSongs.filter((s) => s.audio_url || s.audioUrl));
-    fetchLyricsAndComments(song.id);
-  };
-
-  // 拉取歌词与评论
-  const fetchLyricsAndComments = async (songId) => {
-    try {
-      const songRes = await fetch(`/api/songs/${songId}`);
-      const songJson = await songRes.json();
-      if (songJson.success && songJson.data) {
-        const songData = songJson.data;
-        if (songData.lyric_url) {
-          const lrcRes = await fetch(songData.lyric_url);
-          const lrcText = await lrcRes.text();
-          setLyrics(parseLRC(lrcText, songData.contributor, songData.contributor_email));
-        } else {
-          setLyrics([]);
-        }
-      }
-      fetchComments(songId);
-    } catch (err) {
-      console.error('Fetch Lyrics/Comments Error:', err);
-    }
-  };
-
-  const fetchComments = async (songId) => {
-    try {
-      const res = await fetch(`/api/comments?song_id=${songId}`);
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setComments(json.data);
-      }
-    } catch (err) {
-      console.error('Fetch Comments Error:', err);
-    }
-  };
-
-  // ------------------- 2. 歌词高亮与滚动算法 -------------------
+  // 当当前播放歌曲改变时，拉取评论列表与 LRC 歌词
   useEffect(() => {
-    if (!lyrics || lyrics.length === 0) return;
-    let idx = 0;
-    for (let i = 0; i < lyrics.length; i++) {
-      if (currentTime >= lyrics[i].time) {
-        idx = i;
-      } else {
-        break;
-      }
+    if (!currentTrack) return;
+
+    // 1. 拉取评论列表
+    fetch(`/api/comments?song_id=${currentTrack.id}`)
+      .then((res) => res.json())
+      .then((data) => setComments(data.comments || []))
+      .catch((e) => console.error(e));
+
+    // 2. 拉取与解析 .lrc 歌词文件
+    if (currentTrack.lrc_url) {
+      fetch(currentTrack.lrc_url)
+        .then((res) => res.text())
+        .then((text) => parseLrc(text))
+        .catch(() => setLyrics([]));
+    } else {
+      setLyrics([]);
     }
-    setCurrentLyricIndex(idx);
+  }, [currentTrack]);
 
-    if (lyricContainerRef.current) {
-      const activeNode = lyricContainerRef.current.children[idx];
-      if (activeNode) {
-        activeNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
-  }, [currentTime, lyrics]);
+  // 解析中日双语 LRC 歌词算法 ({ time, jp, cn })
+  const parseLrc = (lrcText) => {
+    const lines = lrcText.split('\n');
+    const result = [];
+    const timeRegex = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isImmersionMode) {
-        setIsImmersionMode(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isImmersionMode]);
+    lines.forEach((line) => {
+      const match = timeRegex.exec(line);
+      if (match) {
+        const minutes = parseInt(match[1], 10);
+        const seconds = parseInt(match[2], 10);
+        const time = minutes * 60 + seconds;
+        const text = line.replace(timeRegex, '').trim();
 
-  // ------------------- 3. 评论发表、回复与【凭密码删除】逻辑 -------------------
-  const handlePostComment = async (e) => {
-    e.preventDefault();
-    if (!currentTrack || !commentText.trim() || !commentNickname.trim()) return;
-
-    try {
-      const formData = new FormData();
-      formData.append('song_id', currentTrack.id);
-      formData.append('nickname', commentNickname);
-      formData.append('password', commentPassword);
-      formData.append('content', commentText);
-      if (selectedComment) {
-        formData.append('parent_id', selectedComment.id);
+        // 中日双语同行或双行解构
+        const parts = text.split('/');
+        result.push({
+          time,
+          jp: parts[0] || text,
+          cn: parts[1] || '',
+        });
       }
-      if (commentFile) {
-        formData.append('file', commentFile);
-      }
-
-      const res = await fetch('/api/comments', { method: 'POST', body: formData });
-      const json = await res.json();
-      if (json.success) {
-        setCommentText('');
-        setCommentFile(null);
-        setReplyToUser('');
-        if (selectedComment) {
-          fetchReplies(selectedComment.id);
-        } else {
-          fetchComments(currentTrack.id);
-        }
-      }
-    } catch (err) {
-      console.error('Post Comment Error:', err);
-    }
+    });
+    setLyrics(result.sort((a, b) => a.time - b.time));
   };
-
-  const handleSelectCommentTile = async (comment) => {
-    if (selectedComment?.id === comment.id) {
-      setSelectedComment(null);
-      return;
-    }
-    setSelectedComment(comment);
-    fetchReplies(comment.id);
-  };
-
-  const fetchReplies = async (parentId) => {
-    try {
-      const res = await fetch(`/api/comments?parent_id=${parentId}`);
-      const json = await res.json();
-      if (json.success && Array.isArray(json.data)) {
-        setReplies(json.data);
-      }
-    } catch (err) {
-      console.error('Fetch Replies Error:', err);
-    }
-  };
-
-  // 【评论凭密码删除逻辑】
-  const handleDeleteComment = async (commentId) => {
-    if (!deletePasswordInput) {
-      setDeleteErrorMsg('请填写发评时设置的删除密码');
-      return;
-    }
-    try {
-      const res = await fetch(`/api/comments?id=${commentId}&password=${encodeURIComponent(deletePasswordInput)}`, {
-        method: 'DELETE',
-      });
-      const json = await res.json();
-      if (json.success) {
-        setDeletingCommentId(null);
-        setDeletePasswordInput('');
-        setDeleteErrorMsg(null);
-        // 刷新列表
-        if (currentTrack) fetchComments(currentTrack.id);
-        if (selectedComment) fetchReplies(selectedComment.id);
-      } else {
-        setDeleteErrorMsg(json.message || '密码不匹配，无法删除');
-      }
-    } catch (err) {
-      console.error('Delete Comment Error:', err);
-      setDeleteErrorMsg('网络异常，删除失败');
-    }
-  };
-
-  const albumCover = currentAlbum?.cover_url || currentTrack?.cover_url || '/01.jpg';
-  const dynamicShadow = getDynamicShadowStyle(theme);
 
   return (
-    <div className="relative min-h-[calc(100vh-3.5rem)] text-current overflow-x-hidden font-serif">
-      {/* 动态高斯模糊背景 */}
-      {showPlayerUI && (
+    <Layout>
+      {/* --------------------------------------------------------------------- */}
+      {/* 📜 1. 《音楽泥棒の自白》版权/申诉书信 Modal (支持多端四周滑动/解开)      */}
+      {/* --------------------------------------------------------------------- */}
+      {showConfession && (
         <div
-          className={`fixed inset-0 pointer-events-none transition-opacity duration-1000 -z-10 bg-cover bg-center ${
-            theme === 'gekkou' ? 'opacity-30 blur-3xl saturate-50' : 'opacity-40 blur-2xl'
-          }`}
-          style={{ backgroundImage: `url(${albumCover})` }}
-        />
-      )}
-
-      {/* 《音楽泥棒の自白》版权声明 Modal */}
-      {showConfessionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          onTouchStart={handleTouchStart}
+          onTouchEnd={() => setShowConfession(false)} // 移动端向任意方向划动即解开
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn"
+        >
           <div
-            style={dynamicShadow}
-            className="bg-white/90 dark:bg-zinc-900/90 max-w-lg w-full p-6 sm:p-8 border border-current/10 font-mono text-xs relative space-y-4 rounded-none"
+            style={{ boxShadow: shadowStyle }}
+            className={`max-w-lg w-full p-6 relative border transition-all duration-300 ${
+              theme === 'gekko'
+                ? 'bg-[#12181a] border-white/20 text-white'
+                : 'bg-[#faf8f5] border-black/10 text-[#2c3e50]'
+            }`}
           >
+            {/* PC 端右上角关闭按钮 */}
             <button
               type="button"
-              onClick={() => setShowConfessionModal(false)}
-              className="absolute top-4 right-4 text-xs hover:underline font-bold"
+              onClick={() => setShowConfession(false)}
+              className="absolute top-4 right-4 text-xs font-bold tracking-widest cursor-pointer hover:opacity-70"
             >
               [ × ]
             </button>
-            <h2 className="text-sm font-bold tracking-widest border-b border-current/20 pb-2">
-              《音楽泥棒の自白》 / CONFESSION
+
+            <h2 className="text-sm font-bold tracking-widest uppercase mb-4 border-b border-current/10 pb-2">
+              [ 音楽泥棒の自白 / COPYRIGHT STATEMENT ]
             </h2>
-            <div className="space-y-3 leading-relaxed font-serif text-[13px] opacity-90">
+
+            <div className="text-xs leading-relaxed space-y-3 font-serif opacity-90 my-4">
               <p>「僕らはただ、夏の間じゅうずっと、あの人の歌を盗み続けていた。」</p>
               <p>
-                本站为 ヨルシカ (Yorushika) 非商业二次创作粉丝档案馆。全站音频与视觉素材版权均归属
-                UNIVERSAL MUSIC LLC 及 ヨルシカ 官方所有。
+                本站为ヨルシカ（Yorushika）非商业粉丝集会切片。全站音频、歌词及视觉影像版权均归属于原作者、所属唱片公司及官方团队所有。
+              </p>
+              <p className="text-[10px] opacity-70">
+                若本站收录内容侵犯了您的合法权益，请联系权利申诉通道 (yhb1220@outlook.com)。
               </p>
             </div>
-            <div className="pt-2 flex justify-between items-center text-[11px] opacity-60 font-mono">
-              <span>© UMI / YORUSHIKA ARCHIVE</span>
-              <button
-                type="button"
-                onClick={() => setShowConfessionModal(false)}
-                className="hover:underline font-bold"
-                style={{ color: themeColor }}
-              >
-                [ UNDERSTOOD ]
-              </button>
+
+            <div className="mt-6 flex justify-between items-center text-[10px] font-mono opacity-70">
+              <span>DESIGNED BY UMI1220</span>
+              <span className="animate-pulse">[ SWIPE OR CLICK TO ENTER ]</span>
             </div>
           </div>
         </div>
       )}
+// -----------------------------------------------------------------------------
+// 4. 播放器中栏 (Player Center Column)
+// -----------------------------------------------------------------------------
+export default function MusicPlayerCenter({
+  mediaMode,
+  setMediaMode,
+  coverMode,
+  setCoverMode,
+  isImmersive,
+  setIsImmersive,
+  lyrics,
+  lyricContributor,
+  playlistModalOpen,
+  setPlaylistModalOpen,
+}) {
+  const {
+    theme,
+    themeColor,
+    shadowStyle,
+    currentTrack,
+    currentAlbum,
+    isPlaying,
+    togglePlay,
+    playNext,
+    playPrev,
+    progress,
+    currentTime,
+    duration,
+    seek,
+    playlist,
+    playTrack,
+  } = useAudio();
 
-      {/* 沉浸歌词全屏模式 */}
-      {isImmersionMode && (
-        <div className="fixed inset-0 z-50 bg-black/90 text-white flex flex-col justify-between p-8 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="flex justify-between items-center font-mono text-xs">
-            <div>
-              <p className="font-bold text-sm">{currentTrack?.title || '言の葉'}</p>
-              <p className="opacity-60">{currentTrack?.artist || 'ヨルシカ'}</p>
-            </div>
+  // 循环模式状态 (0: LOOP | 1: RANDOM | 2: SINGLE | 3: NONE)
+  const [loopMode, setLoopMode] = useState(0);
+  const loopModeLabels = ['[ LOOP ]', '[ RANDOM ]', '[ SINGLE ]', '[ NONE ]'];
+
+  // 切换循环模式
+  const cycleLoopMode = () => {
+    setLoopMode((prev) => (prev + 1) % 4);
+  };
+
+  // 获取封面 URL (优先歌曲独立封面，为空时拉取专辑封面)
+  const coverUrl = currentTrack?.cover_url || currentAlbum?.cover_url || '/01.jpg';
+
+  return (
+    <div className="flex flex-col h-full justify-between space-y-6 relative">
+      {/* --------------------------------------------------------------------- */}
+      {/* A. 顶部: 音源 / MV 模式切换 & 沉浸按钮 (纯文字 UI)                       */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="flex items-center justify-between text-xs border-b border-current/10 pb-2">
+        <div className="flex items-center space-x-4">
+          <button
+            type="button"
+            onClick={() => setMediaMode('audio')}
+            className={`font-bold transition-opacity cursor-pointer ${
+              mediaMode === 'audio' ? 'underline' : 'opacity-50 hover:opacity-100'
+            }`}
+            style={{ color: mediaMode === 'audio' ? themeColor : 'inherit' }}
+          >
+            [ AUDIO ]
+          </button>
+
+          {currentTrack?.mv_url && (
             <button
               type="button"
-              onClick={() => setIsImmersionMode(false)}
-              className="hover:underline"
+              onClick={() => setMediaMode('mv')}
+              className={`font-bold transition-opacity cursor-pointer ${
+                mediaMode === 'mv' ? 'underline' : 'opacity-50 hover:opacity-100'
+              }`}
+              style={{ color: mediaMode === 'mv' ? themeColor : 'inherit' }}
             >
-              [ CLOSE / ESC ]
+              [ MV ]
             </button>
-          </div>
-
-          <div
-            ref={lyricContainerRef}
-            className="flex-1 my-12 overflow-y-auto space-y-6 text-center font-serif scroll-smooth no-scrollbar flex flex-col items-center justify-center"
-          >
-            {lyrics.map((line, idx) => (
-              <div
-                key={idx}
-                className={`transition-all duration-300 ${
-                  idx === currentLyricIndex
-                    ? 'text-xl sm:text-2xl font-bold opacity-100 scale-105'
-                    : 'text-sm opacity-30'
-                }`}
-                style={{ color: idx === currentLyricIndex ? themeColor : undefined }}
-              >
-                <p>{line.main}</p>
-                {line.sub && <p className="text-xs mt-1 font-normal opacity-80">{line.sub}</p>}
-              </div>
-            ))}
-          </div>
-
-          <div className="font-mono text-[10px] opacity-40 text-center">
-            [ CLICK ANYWHERE / ESC TO EXIT IMMERSION MODE ]
-          </div>
+          )}
         </div>
-      )}
 
-      {/* 移动端 3 板块切换 Tab Bar */}
-      <div className="lg:hidden flex justify-around items-center border-b border-current/10 py-2.5 font-mono text-xs bg-white/30 dark:bg-zinc-950/30 backdrop-blur-md">
         <button
           type="button"
-          onClick={() => setActiveTab('details')}
-          className={`hover:underline ${activeTab === 'details' ? 'font-bold' : 'opacity-60'}`}
-          style={{ color: activeTab === 'details' ? themeColor : undefined }}
+          onClick={() => setIsImmersive(!isImmersive)}
+          className="font-bold tracking-wider opacity-80 hover:opacity-100 cursor-pointer"
         >
-          [ DETAILS ]
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('player')}
-          className={`hover:underline ${activeTab === 'player' ? 'font-bold' : 'opacity-60'}`}
-          style={{ color: activeTab === 'player' ? themeColor : undefined }}
-        >
-          [ PLAYER ]
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('comments')}
-          className={`hover:underline ${activeTab === 'comments' ? 'font-bold' : 'opacity-60'}`}
-          style={{ color: activeTab === 'comments' ? themeColor : undefined }}
-        >
-          [ COMMENTS ]
+          [ IMMERSIVE / 沉浸 ]
         </button>
       </div>
 
-      {/* 主三栏响应式布局 */}
-      <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* 左栏: 专辑列表与详情 */}
-        <div className={`space-y-6 ${activeTab === 'details' || 'hidden lg:block'}`}>
-          <div className="font-mono text-xs font-bold tracking-widest border-b border-current/10 pb-2 flex justify-between">
-            <span>01. ALBUM DETAILS</span>
-            {fromMenu && !selectedAlbum && <span className="opacity-60">[ SELECT AN ALBUM ]</span>}
+      {/* --------------------------------------------------------------------- */}
+      {/* B. 封面展示区 (支持 3 模式切换，应用 Smartisan OS 斜射物理光影)          */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="flex-1 flex items-center justify-center my-4 relative group">
+        {mediaMode === 'mv' && currentTrack?.mv_url ? (
+          // MV 播放模式
+          <div className="w-full aspect-video bg-black flex items-center justify-center shadow-lg">
+            <iframe
+              src={currentTrack.mv_url}
+              title="Music Video"
+              className="w-full h-full border-none"
+              allowFullScreen
+            />
           </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {albums.map((album) => {
-              const isSelected = selectedAlbum?.id === album.id;
-              return (
-                <div key={album.id} className="space-y-2 col-span-2 sm:col-span-1">
-                  <div
-                    style={dynamicShadow}
-                    onClick={() => handleSelectAlbumTile(album)}
-                    className="relative aspect-square bg-zinc-800 rounded-none overflow-hidden cursor-pointer group border border-current/10 transition-transform active:scale-95"
-                  >
-                    <div
-                      className="w-full h-full bg-cover bg-center"
-                      style={{ backgroundImage: `url(${album.cover_url || '/01.jpg'})` }}
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-between text-white font-mono text-[10px]">
-                      <span>{album.title}</span>
-                      <span>{album.release_date?.substring(0, 4)}</span>
-                    </div>
-                  </div>
-
-                  {isSelected && (
-                    <div className="col-span-2 bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md p-4 border border-current/10 font-mono text-xs space-y-3 animate-in fade-in duration-200">
-                      <div className="flex justify-between items-center border-b border-current/10 pb-2">
-                        <span className="font-bold truncate">{album.title}</span>
-                        <span className="text-[10px] opacity-60">
-                          {album.song_count || albumSongs.length} TRACKS
-                        </span>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                        {albumSongs.map((song, idx) => {
-                          const hasAudio = song.audio_url || song.audioUrl;
-                          return (
-                            <div
-                              key={song.id || idx}
-                              className="flex justify-between items-center p-1.5 hover:bg-current/5 transition-colors group text-[11px]"
-                            >
-                              <div
-                                onClick={() => handleSongClick(song)}
-                                className={`cursor-pointer truncate max-w-[70%] ${
-                                  hasAudio ? 'hover:underline font-medium' : 'opacity-40'
-                                }`}
-                              >
-                                <span>{idx + 1}. </span>
-                                <span>{song.title}</span>
-                              </div>
-
-                              <div className="flex items-center space-x-2 text-[10px]">
-                                {hasAudio ? (
-                                  <button                                    type="button"
-                                    onClick={() => handleSongClick(song)}
-                                    className="font-mono hover:underline font-bold"
-                                    style={{ color: themeColor }}
-                                  >
-                                    [ PLAY ]
-                                  </button>
-                                ) : (
-                                  <span className="opacity-30 font-mono text-[10px]">[ NO AUDIO ]</span>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* =================================================================== */}
-        {/* 中栏 (02. PLAYER & LYRICS): 播放器核心、封面切换、波浪进度条与控制链  */}
-        {/* =================================================================== */}
-        <div className={`space-y-6 ${activeTab === 'player' || 'hidden lg:block'}`}>
-          <div className="font-mono text-xs font-bold tracking-widest border-b border-current/10 pb-2 flex justify-between items-center">
-            <span>02. PLAYER & LYRICS</span>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowCoverModeMenu(!showCoverModeMenu)}
-                className="hover:underline opacity-80 text-[10px]"
-              >
-                [ VIEW: {coverMode.toUpperCase()} ]
-              </button>
-              {showCoverModeMenu && (
-                <div className="absolute right-0 mt-1 bg-white/95 dark:bg-zinc-900/95 border border-current/20 p-2 space-y-1 text-[10px] z-30 font-mono shadow-xl rounded-none">
-                  <button
-                    type="button"
-                    onClick={() => { setCoverMode('square'); setShowCoverModeMenu(false); }}
-                    className="block w-full text-left hover:underline"
-                  >
-                    [ SQUARE ALBUM ]
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCoverMode('disc'); setShowCoverModeMenu(false); }}
-                    className="block w-full text-left hover:underline"
-                  >
-                    [ STATIC DISC ]
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setCoverMode('rotate'); setShowCoverModeMenu(false); }}
-                    className="block w-full text-left hover:underline"
-                  >
-                    [ ROTATING DISC ]
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
+        ) : (
+          // 音频封面 3 模式
           <div
-            style={dynamicShadow}
-            className="bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md p-6 border border-current/10 space-y-6 rounded-none transition-all duration-300"
+            onClick={() => {
+              // 桌面端点击/手机端划动切换封面模式 (1: 方形光影 | 2: 静态唱片 | 3: 旋转唱片)
+              setCoverMode((prev) => (prev % 3) + 1);
+            }}
+            style={{ boxShadow: shadowStyle }}
+            className={`relative transition-all duration-500 cursor-pointer overflow-hidden ${
+              coverMode === 1
+                ? 'w-64 h-64 sm:w-80 sm:h-80 rounded-none' // 模式一：直角方形带坚果OS光影
+                : 'w-64 h-64 sm:w-80 sm:h-80 rounded-full' // 模式二/三：圆形唱片
+            }`}
           >
-            {/* 1. 封面展示区 (3 模式) */}
-            <div className="flex justify-center items-center py-4">
-              <div
-                className={`relative overflow-hidden border border-current/10 transition-all duration-500 ${
-                  coverMode === 'square'
-                    ? 'w-64 h-64 rounded-none'
-                    : coverMode === 'disc'
-                    ? 'w-64 h-64 rounded-full'
-                    : `w-64 h-64 rounded-full ${isPlaying ? 'animate-spin' : ''}`
-                }`}
-                style={{ animationDuration: '20s' }}
-              >
-                <div
-                  className="w-full h-full bg-cover bg-center"
-                  style={{ backgroundImage: `url(${albumCover})` }}
-                />
-                {coverMode !== 'square' && (
-                  <div className="absolute inset-0 m-auto w-12 h-12 bg-zinc-950 rounded-full border-2 border-white/20 shadow-inner flex items-center justify-center">
-                    <div className="w-4 h-4 bg-zinc-900 rounded-full" />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 2. 当前曲目信息与全屏沉浸入口 */}
-            <div className="text-center space-y-1">
-              <div className="flex justify-center items-center space-x-2">
-                <h2 className="text-lg font-bold font-serif">{currentTrack?.title || '未选择曲目'}</h2>
-                <button
-                  type="button"
-                  onClick={() => setIsImmersionMode(true)}
-                  className="text-[10px] font-mono hover:underline opacity-60"
-                >
-                  [ IMMERSION ]
-                </button>
-              </div>
-              <p className="text-xs font-mono opacity-60">
-                {currentAlbum?.title ? `${currentAlbum.title} · ` : ''}
-                {currentTrack?.artist || 'ヨルシカ'}
-              </p>
-            </div>
-
-            {/* 3. 内联歌词展示窗口 */}
-            <div
-              ref={lyricContainerRef}
-              className="h-32 overflow-y-auto space-y-3 text-center font-serif text-xs my-4 scroll-smooth no-scrollbar border-y border-current/10 py-3"
-            >
-              {lyrics.length > 0 ? (
-                lyrics.map((line, idx) => (
-                  <div
-                    key={idx}
-                    className={`transition-all duration-300 ${
-                      idx === currentLyricIndex ? 'font-bold opacity-100 text-sm' : 'opacity-40'
-                    }`}
-                    style={{ color: idx === currentLyricIndex ? themeColor : undefined }}
-                  >
-                    <p>{line.main}</p>
-                    {line.sub && <p className="text-[10px] font-normal opacity-70 mt-0.5">{line.sub}</p>}
-                  </div>
-                ))
-              ) : (
-                <div className="h-full flex items-center justify-center opacity-40 font-mono text-[11px]">
-                  [ NO LYRICS AVAILABLE / 暂无歌词 ]
-                </div>
-              )}
-            </div>
-
-            {/* 4. Pixel 动态波浪进度条 */}
-            <div className="space-y-1.5 font-mono text-[10px]">
-              <div className="relative w-full h-3 flex items-center cursor-pointer group">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={progress || 0}
-                  onChange={(e) => seek(parseFloat(e.target.value))}
-                  className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                />
-                <div className="w-full h-1 bg-current/10 relative overflow-hidden">
-                  <div
-                    className="h-full transition-all duration-100"
-                    style={{ width: `${progress}%`, backgroundColor: themeColor || '#88abac' }}
-                  />
-                </div>
-              </div>
-              <div className="flex justify-between opacity-60">
-                <span>{formatTime(currentTime)}</span>
-                <span>{formatTime(currentTrack?.duration || 0)}</span>
-              </div>
-            </div>
-
-            {/* 5. 纯文字 5 大播放控制链按钮 */}
-            <div className="flex justify-between items-center font-mono text-xs pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const modes = ['LOOP', 'RAND', 'SINGLE'];
-                  setPlayMode(modes[(modes.indexOf(playMode) + 1) % modes.length]);
-                }}
-                className="hover:underline opacity-80"
-              >
-                [ {playMode} ]
-              </button>
-              <button type="button" onClick={playPrev} className="hover:underline font-bold">
-                [ PREV ]
-              </button>
-              <button
-                type="button"
-                onClick={togglePlay}
-                className="px-4 py-1.5 font-bold hover:underline"
-                style={{ backgroundColor: themeColor, color: '#09090b' }}
-              >
-                {isPlaying ? '[ PAUSE ]' : '[ PLAY ]'}
-              </button>
-              <button type="button" onClick={playNext} className="hover:underline font-bold">
-                [ NEXT ]
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowListModal(true)}
-                className="hover:underline opacity-80"
-              >
-                [ LIST ]
-              </button>
-            </div>
-          </div>
-        </div>        {/* =================================================================== */}
-        {/* 右栏 (03. COMMENTS): 社区讨论磁贴、回复线程与凭密码删除交互       */}
-        {/* =================================================================== */}
-        <div className={`space-y-6 ${activeTab === 'comments' || 'hidden lg:block'}`}>
-          <div className="font-mono text-xs font-bold tracking-widest border-b border-current/10 pb-2 flex justify-between items-center">
-            <span>03. COMMENTS & DISCUSSIONS</span>
-            <span className="opacity-60 text-[10px]">{comments.length} THREADS</span>
-          </div>
-
-          <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
-            {comments.length > 0 ? (
-              comments.map((comment) => {
-                const isSelected = selectedComment?.id === comment.id;
-                return (
-                  <div key={comment.id} className="space-y-2">
-                    <div
-                      style={dynamicShadow}
-                      onClick={() => handleSelectCommentTile(comment)}
-                      className="bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md p-4 border border-current/10 cursor-pointer hover:border-current/30 transition-all rounded-none space-y-2"
-                    >
-                      <div className="flex justify-between items-center font-mono text-[10px] opacity-70">
-                        <span className="font-bold">{comment.nickname || '匿名盗贼'}</span>
-                        <span>{comment.created_at?.substring(0, 10)}</span>
-                      </div>
-                      <p className="font-serif text-xs line-clamp-2 leading-relaxed">{comment.content}</p>
-                      
-                      <div className="flex justify-between items-center font-mono text-[10px] pt-1 opacity-60 border-t border-current/10">
-                        <span>
-                          {comment.has_media ? '[ MEDIA ] ' : ''}
-                          {comment.reply_count || 0} REPLIES
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeletingCommentId(comment.id);
-                          }}
-                          className="hover:underline text-red-400 opacity-80"
-                        >
-                          [ DELETE ]
-                        </button>
-                      </div>
-
-                      {/* 凭密码删除内联交互 */}
-                      {deletingCommentId === comment.id && (
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="mt-2 p-2 border border-red-500/30 bg-red-950/20 space-y-2 text-[10px] font-mono"
-                        >
-                          <p className="text-red-400">请输入发表时设置的删除密码：</p>
-                          <div className="flex gap-2">
-                            <input
-                              type="password"
-                              placeholder="PASSWORD"
-                              value={deletePasswordInput}
-                              onChange={(e) => setDeletePasswordInput(e.target.value)}
-                              className="bg-transparent border border-current/20 p-1 flex-1 text-[10px]"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteComment(comment.id)}
-                              className="bg-red-500 text-white px-2 py-1 font-bold"
-                            >
-                              [ CONFIRM ]
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setDeletingCommentId(null); setDeleteErrorMsg(null); }}
-                              className="opacity-60 px-1"
-                            >
-                              [ CANCEL ]
-                            </button>
-                          </div>
-                          {deleteErrorMsg && <p className="text-red-400 text-[9px]">{deleteErrorMsg}</p>}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 评论展开后的回复线程列表 */}
-                    {isSelected && (
-                      <div className="ml-4 space-y-2 border-l-2 border-current/20 pl-3 pt-1 animate-in fade-in duration-200">
-                        {replies.map((reply) => (
-                          <div
-                            key={reply.id}
-                            className="bg-white/40 dark:bg-zinc-900/40 p-3 border border-current/10 font-mono text-xs space-y-1"
-                          >
-                            <div className="flex justify-between items-center text-[10px] opacity-70">
-                              <span className="font-bold">{reply.nickname}</span>
-                              <span>{reply.created_at?.substring(0, 10)}</span>
-                            </div>
-                            <p className="font-serif text-[11px] opacity-90">{reply.content}</p>
-                          </div>
-                        ))}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReplyToUser(comment.nickname);
-                            document.getElementById('comment-input')?.focus();
-                          }}
-                          className="text-[10px] font-mono hover:underline opacity-80 pt-1"
-                        >
-                          [ REPLY TO {comment.nickname} ]
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              <div className="p-8 text-center font-mono text-xs opacity-40 border border-current/10">
-                [ NO COMMENTS YET / 暂无评论，欢迎留言 ]
-              </div>
-            )}
-          </div>
-
-          {/* 底部发表评论表单 */}
-          <form onSubmit={handlePostComment} className="space-y-3 font-mono text-xs pt-2">
-            {replyToUser && (
-              <div className="flex justify-between items-center text-[10px] opacity-80 border-b border-current/10 pb-1">
-                <span>REPLYING TO: @{replyToUser}</span>
-                <button
-                  type="button"
-                  onClick={() => { setReplyToUser(''); setSelectedComment(null); }}
-                  className="hover:underline"
-                >
-                  [ CANCEL REPLY ]
-                </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                required
-                placeholder="NICKNAME / 昵称 *"
-                value={commentNickname}
-                onChange={(e) => setCommentNickname(e.target.value)}
-                className="bg-transparent border border-current/20 p-2 text-xs focus:outline-none"
-              />
-              <input
-                type="password"
-                placeholder="DELETE PASS / 删除密码"
-                value={commentPassword}
-                onChange={(e) => setCommentPassword(e.target.value)}
-                className="bg-transparent border border-current/20 p-2 text-xs focus:outline-none"
-              />
-            </div>
-
-            <textarea
-              id="comment-input"
-              rows={3}
-              required
-              placeholder={replyToUser ? `回复 @${replyToUser}...` : '发表您的听歌感想或对本作的见解...'}
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              className="w-full bg-transparent border border-current/20 p-2 text-xs font-serif leading-relaxed focus:outline-none"
+            <img
+              src={coverUrl}
+              alt={currentTrack?.title || 'Album Cover'}
+              className={`w-full h-full object-cover ${
+                coverMode === 3 && isPlaying ? 'animate-spinSlow' : ''
+              }`}
             />
 
-            <div className="flex justify-between items-center">
-              <label className="cursor-pointer text-[10px] opacity-70 hover:opacity-100 flex items-center space-x-1">
-                <span>[ + FILE / 附件 ]</span>
-                <input
-                  type="file"
-                  accept="image/*,audio/*"
-                  onChange={(e) => setCommentFile(e.target.files[0])}
-                  className="hidden"
-                />
-              </label>
-              {commentFile && <span className="text-[9px] opacity-60 truncate max-w-[120px]">{commentFile.name}</span>}
-
-              <button
-                type="submit"
-                className="px-4 py-1.5 font-bold transition-colors"
-                style={{ backgroundColor: themeColor, color: '#09090b' }}
-              >
-                [ SEND COMMENT ]
-              </button>
+            {/* 模式切换悬停提示文字 */}
+            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] tracking-widest uppercase">
+              [ MODE {coverMode} : CLICK TO SWITCH ]
             </div>
-          </form>
-        </div>
-      </div>      {/* =================================================================== */}
-      {/* 全局 Modal 弹窗逻辑                                               */}
-      {/* =================================================================== */}
-      
-      {/* 1. 播放列表 Modal [ LIST ] */}
-      {showListModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          </div>
+        )}
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* C. 歌词显示区 (中日双语/混合，2 行滚动，底部显示贡献者署名)            */}
+      {/* --------------------------------------------------------------------- */}
+      <div
+        onClick={() => setIsImmersive(true)}
+        className="min-h-[80px] flex flex-col items-center justify-center text-center cursor-pointer px-4 my-2 group"
+      >
+        {lyrics.length > 0 ? (
+          // 获取当前时间戳对应的歌词
+          (() => {
+            const currentLyric =
+              lyrics.slice().reverse().find((l) => currentTime >= l.time) || lyrics[0];
+            return (
+              <div className="space-y-1 transition-all duration-300">
+                {/* 第一行：日文原文 */}
+                <p className="text-sm sm:text-base font-serif font-bold tracking-wide">
+                  {currentLyric?.jp || '---'}
+                </p>
+                {/* 第二行：中文翻译 */}
+                {currentLyric?.cn && (
+                  <p
+                    style={{ color: themeColor }}
+                    className="text-xs sm:text-sm font-sans opacity-90"
+                  >
+                    {currentLyric.cn}
+                  </p>
+                )}
+              </div>
+            );
+          })()
+        ) : (
+          // 无 LRC 歌词时，在歌词区居中显示贡献者署名
+          <div className="text-xs opacity-60 italic font-serif">
+            <p>「歌詞はまだ登録されていません」</p>
+            <p className="mt-1 text-[10px]">
+              贡献人：{currentTrack?.contributor || 'yhb1220@outlook.com'}
+            </p>
+          </div>
+        )}
+
+        {/* 歌词存在时，底部微小淡化显示贡献人邮箱 */}
+        {lyrics.length > 0 && (
+          <div className="mt-2 text-[9px] opacity-40 font-mono">
+            贡献人：{currentTrack?.contributor || 'yhb1220@outlook.com'}
+          </div>
+        )}
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* D. Google Pixel 风格动态波浪进度条                                     */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="space-y-1">
+        <div
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const newTime = (clickX / rect.width) * duration;
+            seek(newTime);
+          }}
+          className="h-2 bg-current/10 w-full relative cursor-pointer overflow-hidden rounded-none"
+        >
           <div
-            style={dynamicShadow}
-            className="bg-white/95 dark:bg-zinc-900/95 max-w-md w-full p-6 border border-current/10 space-y-4 font-mono text-xs rounded-none"
-          >
-            <div className="flex justify-between items-center border-b border-current/20 pb-2">
-              <span className="font-bold">[ PLAYLIST / 在播歌单 ]</span>
+            className="h-full transition-all duration-100"
+            style={{ width: `${progress}%`, backgroundColor: themeColor }}
+          />
+        </div>
+
+        <div className="flex justify-between text-[10px] font-mono opacity-60">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
+        </div>
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* E. 播放器底部标准五大控件 (严禁 Emoji, 全量纯文字 UI)                   */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="flex items-center justify-between text-xs font-bold pt-2 border-t border-current/10">
+        {/* 控件一: 循环模式切换 */}
+        <button
+          type="button"
+          onClick={cycleLoopMode}
+          className="hover:opacity-70 cursor-pointer"
+        >
+          {loopModeLabels[loopMode]}
+        </button>
+
+        {/* 控件二: 上一首 */}
+        <button
+          type="button"
+          onClick={playPrev}
+          className="hover:opacity-70 cursor-pointer"
+        >
+          [ PREV ]
+        </button>
+
+        {/* 控件三: 播放 / 暂停 */}
+        <button
+          type="button"
+          onClick={togglePlay}
+          style={{ color: themeColor }}
+          className="hover:underline text-sm cursor-pointer"
+        >
+          [ {isPlaying ? 'PAUSE' : 'PLAY'} ]
+        </button>
+
+        {/* 控件四: 下一首 */}
+        <button
+          type="button"
+          onClick={playNext}
+          className="hover:opacity-70 cursor-pointer"
+        >
+          [ NEXT ]
+        </button>
+
+        {/* 控件五: 播放列表弹窗 */}
+        <button
+          type="button"
+          onClick={() => setPlaylistModalOpen(true)}
+          className="hover:opacity-70 cursor-pointer"
+        >
+          [ PLAYLIST ]
+        </button>
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* F. 唱片旋转 CSS                                                      */}
+      {/* --------------------------------------------------------------------- */}
+      <style jsx>{`
+        @keyframes spinSlow {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .animate-spinSlow {
+          animation: spinSlow 20s linear infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// 时间格式化辅助函数 (秒 -> 00:00)
+function formatTime(secs) {
+  if (isNaN(secs) || secs === 0) return '00:00';
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+}
+// -----------------------------------------------------------------------------
+// 5. 详情页与歌曲列表 (Left Column: Details & Songs List)
+// -----------------------------------------------------------------------------
+export function MusicDetailsColumn({
+  albums,
+  selectedAlbum,
+  setSelectedAlbum,
+  songList,
+  setSongList,
+}) {
+  const { theme, themeColor, shadowStyle, playTrack, addToPlaylist } = useAudio();
+  const router = useRouter();
+
+  // 折叠卡片展开状态
+  const [isCardExpanded, setIsCardExpanded] = useState(true);
+
+  // 点击专辑磁贴：拉取专辑详情与歌曲列表 (符合《拉取上传删除逻辑规范》)
+  const handleAlbumSelect = async (album) => {
+    setSelectedAlbum(album);
+    setIsCardExpanded(true);
+    try {
+      const res = await fetch(`/api/albums/${album.id}`);
+      const data = await res.json();
+      if (data && data.songs) {
+        setSongList(data.songs);
+      }
+    } catch (e) {
+      console.error('Failed to load songs:', e);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full space-y-4 overflow-y-auto pr-1 select-none">
+      {/* 顶部标题 */}
+      <div className="text-xs font-bold tracking-widest uppercase border-b border-current/10 pb-2">
+        [ DETAILS & ALBUMS / 专辑与曲目 ]
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* A. 选中专辑的折叠详情卡片 (长方形毛玻璃质感，防屏幕溢出)                 */}
+      {/* --------------------------------------------------------------------- */}
+      {selectedAlbum && (
+        <div
+          style={{ boxShadow: shadowStyle }}
+          className={`backdrop-blur-md transition-all duration-300 p-4 border rounded-none ${
+            theme === 'gekko'
+              ? 'bg-[#12181a]/80 border-white/10 text-white'
+              : 'bg-white/80 border-black/5 text-[#2c3e50]'
+          }`}
+        >
+          {/* 卡片头部 (左侧放大封面，右侧专辑信息) */}
+          <div className="flex space-x-4 items-start">
+            <img
+              src={selectedAlbum.cover_url || '/01.jpg'}
+              alt={selectedAlbum.title || selectedAlbum.name}
+              className="w-20 h-20 sm:w-24 sm:h-24 object-cover flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0 text-xs space-y-1">
+              <h3
+                className="font-bold text-sm tracking-wide truncate"
+                style={{ color: themeColor }}
+              >
+                [ {selectedAlbum.title || selectedAlbum.name} ]
+              </h3>
+              <p className="opacity-70">
+                RELEASE: {selectedAlbum.release_date || '2020.07.29'}
+              </p>
+              <p className="opacity-70">
+                TRACKS: {selectedAlbum.song_count || selectedAlbum.track_count || 10}
+              </p>
               <button
                 type="button"
-                onClick={() => setShowListModal(false)}
-                className="hover:underline font-bold"
+                onClick={() => setIsCardExpanded(!isCardExpanded)}
+                className="text-[10px] underline pt-1 cursor-pointer font-bold"
               >
-                [ CLOSE ]
+                [ {isCardExpanded ? 'COLLAPSE / 折叠' : 'EXPAND / 展开'} ]
               </button>
             </div>
+          </div>
 
-            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-              {playlist && playlist.length > 0 ? (
-                playlist.map((track, idx) => {
-                  const isCurrent = currentTrack?.id === track.id;
+          {/* 展开的歌曲列表 (带 max-h 高度限制与 e.stopPropagation 内部滚动) */}
+          {isCardExpanded && (
+            <div
+              onTouchMove={(e) => e.stopPropagation()} // 阻止冒泡，防止误切 Swiper 页面
+              className="mt-4 pt-3 border-t border-current/10 space-y-2 max-h-[50vh] overflow-y-auto"
+            >
+              {songList.length > 0 ? (
+                songList.map((song, index) => {
+                  const hasAudio = Boolean(song.audio_url);
                   return (
                     <div
-                      key={track.id || idx}
-                      onClick={() => playTrack(track, currentAlbum, playlist)}
-                      className={`p-2 border border-current/10 flex justify-between items-center cursor-pointer hover:bg-current/5 ${
-                        isCurrent ? 'font-bold' : 'opacity-80'
-                      }`}
+                      key={song.id || index}
+                      className="flex items-center justify-between text-xs p-2 hover:bg-current/5 transition-colors"
                     >
-                      <span className="truncate max-w-[80%]">
-                        {idx + 1}. {track.title}
-                      </span>
-                      {isCurrent && <span style={{ color: themeColor }}>[ PLAYING ]</span>}
+                      {/* 左侧曲号与歌名 (直接点击全量替换播放列表) */}
+                      <div
+                        onClick={() => {
+                          if (hasAudio) {
+                            // 规则1：点击带音源歌曲，全量替换播放列表并播放
+                            const playableSongs = songList.filter((s) => s.audio_url);
+                            playTrack(song, selectedAlbum, playableSongs);
+                          }
+                        }}
+                        className={`flex items-center space-x-2 flex-1 truncate cursor-pointer ${
+                          !hasAudio ? 'opacity-40 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        <span className="font-mono text-[10px] opacity-60">
+                          {index + 1 < 10 ? `0${index + 1}` : index + 1}.
+                        </span>
+                        <span className="font-medium truncate">{song.title}</span>
+                      </div>
+
+                      {/* 右侧操作控件 */}
+                      <div className="flex items-center space-x-2 text-[10px] font-bold">
+                        {hasAudio ? (
+                          <>
+                            {/* 规则2: 点击 [ NEXT + ] 追加到播放列表 */}
+                            <button
+                              type="button"
+                              onClick={() => addToPlaylist(song)}
+                              className="hover:underline cursor-pointer opacity-70 hover:opacity-100"
+                            >
+                              [ NEXT + ]
+                            </button>
+                          </>
+                        ) : (
+                          /* 规则3: 无音源显示补充跳转 */
+                          <button
+                            type="button"
+                            onClick={() =>
+                              router.push(
+                                `/submit?song_id=${song.id}&album_id=${selectedAlbum.id}`
+                              )
+                            }
+                            style={{ color: themeColor }}
+                            className="hover:underline cursor-pointer"
+                          >
+                            [ SUBMIT / 补充 ]
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })
               ) : (
-                <p className="opacity-40 text-center py-4">[ PLAYLIST IS EMPTY ]</p>
+                <div className="text-center py-4 text-xs opacity-50">
+                  [ NO TRACKS AVAILABLE ]
+                </div>
               )}
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* 2. 无音源拦截 Modal */}
-      {noAudioSong && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      {/* --------------------------------------------------------------------- */}
+      {/* B. 未选中/导航进入时的 WP8.1 磁贴列表 (应用 Smartisan OS 斜射光影)      */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 gap-3 pt-2">
+        {albums.map((album) => (
           <div
-            style={dynamicShadow}
-            className="bg-white/95 dark:bg-zinc-900/95 max-w-sm w-full p-6 border border-current/10 space-y-4 font-mono text-xs rounded-none text-center"
+            key={album.id}
+            onClick={() => handleAlbumSelect(album)}
+            style={{ boxShadow: shadowStyle }}
+            className="aspect-square relative cursor-pointer overflow-hidden rounded-none group transition-transform hover:scale-[1.02]"
           >
-            <h3 className="font-bold border-b border-current/10 pb-2 text-red-400">
-              [ NO AUDIO SOURCE / 暂无音源 ]
-            </h3>
-            <p className="font-serif opacity-80 leading-relaxed">
-              曲目《{noAudioSong.title}》尚未在数据库中配置有效的音频链接。
-            </p>
-            <div className="pt-2 flex justify-center space-x-4">
-              <Link
-                href="/music/submit"
-                className="px-3 py-1 bg-emerald-500 text-zinc-950 font-bold hover:bg-emerald-400"
-              >
-                [ 补充音源 ]
-              </Link>
-              <button
-                type="button"
-                onClick={() => setNoAudioSong(null)}
-                className="px-3 py-1 border border-current/20 hover:bg-current/10"
-              >
-                [ 关闭 ]
-              </button>
+            <img
+              src={album.cover_url || '/01.jpg'}
+              alt={album.title || album.name}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end text-white text-[10px]">
+              <p className="font-bold truncate">[ {album.title || album.name} ]</p>
+              <p className="opacity-70">TRACKS: {album.song_count || 10}</p>
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 6. 播放列表管理弹窗 (Playlist Modal Component)
+// -----------------------------------------------------------------------------
+export function PlaylistModal({ isOpen, onClose }) {
+  const { theme, themeColor, shadowStyle, playlist, currentTrack, playTrack, removeFromPlaylist, clearPlaylist } = useAudio();
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fadeIn">
+      <div
+        style={{ boxShadow: shadowStyle }}
+        className={`max-w-md w-full p-5 border rounded-none relative max-h-[80vh] flex flex-col ${
+          theme === 'gekko'
+            ? 'bg-[#12181a] border-white/20 text-white'
+            : 'bg-[#faf8f5] border-black/10 text-[#2c3e50]'
+        }`}
+      >
+        {/* 弹窗头部 */}
+        <div className="flex items-center justify-between pb-3 border-b border-current/10">
+          <span className="text-xs font-bold tracking-wider">
+            [ PLAYLIST - {playlist.length} TRACKS ]
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs font-bold cursor-pointer hover:opacity-70"
+          >
+            [ CLOSE ]
+          </button>
+        </div>
+
+        {/* 歌单列表 */}
+        <div
+          onTouchMove={(e) => e.stopPropagation()}
+          className="my-4 space-y-1 overflow-y-auto flex-1 max-h-[50vh] pr-1"
+        >
+          {playlist.length > 0 ? (
+            playlist.map((track, idx) => {
+              const isCurrent = currentTrack?.id === track.id;
+              return (
+                <div
+                  key={`${track.id}-${idx}`}
+                  className={`flex items-center justify-between text-xs p-2 transition-colors ${
+                    isCurrent ? 'bg-current/10 font-bold' : 'hover:bg-current/5'
+                  }`}
+                >
+                  <div
+                    onClick={() => playTrack(track)}
+                    className="flex items-center space-x-2 truncate cursor-pointer flex-1"
+                  >
+                    <span className="font-mono text-[10px] opacity-60">{idx + 1}.</span>
+                    <span className="truncate" style={{ color: isCurrent ? themeColor : 'inherit' }}>
+                      {track.title}
+                    </span>
+                    {isCurrent && <span className="text-[9px] opacity-70">[ NOW ]</span>}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeFromPlaylist(idx)}
+                    className="text-xs font-bold hover:opacity-70 px-2 cursor-pointer"
+                  >
+                    [ × ]
+                  </button>
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-center py-8 text-xs opacity-50">
+              [ PLAYLIST IS EMPTY ]
+            </div>
+          )}
+        </div>
+
+        {/* 弹窗底部操作 */}
+        <div className="pt-2 border-t border-current/10 flex justify-between items-center text-xs font-bold">
+          <button
+            type="button"
+            onClick={clearPlaylist}
+            className="hover:underline opacity-70 hover:opacity-100 cursor-pointer"
+          >
+            [ CLEAR ALL ]
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ color: themeColor }}
+            className="hover:underline cursor-pointer"
+          >
+            [ DONE ]
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// -----------------------------------------------------------------------------
+// 7. 右栏：评论与回复页面 (Right Column: Comments & Replies)
+// -----------------------------------------------------------------------------
+export function MusicCommentsColumn({ currentTrack }) {
+  const { theme, themeColor, shadowStyle } = useAudio();
+
+  // 状态管理
+  const [comments, setComments] = useState([]);
+  const [expandedCommentId, setExpandedCommentId] = useState(null); // 当前展开回复的评论ID
+  const [replies, setReplies] = useState([]);                       // 回复列表
+  const [loadingReplies, setLoadingReplies] = useState(false);
+
+  // 评论/回复表单字段
+  const [commentInput, setCommentInput] = useState('');
+  const [nicknameInput, setNicknameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [attachmentUrl, setAttachmentUrl] = useState('');
+  
+  // 回复子表单字段
+  const [replyInput, setReplyInput] = useState('');
+  const [replyNickname, setReplyNickname] = useState('');
+  const [replyPassword, setReplyPassword] = useState('');
+  const [replyAttachment, setReplyAttachment] = useState('');
+
+  // 监听当前歌曲变化，拉取评论列表
+  useEffect(() => {
+    if (!currentTrack) return;
+    fetchComments();
+  }, [currentTrack]);
+
+  const fetchComments = async () => {
+    try {
+      const res = await fetch(`/api/comments?song_id=${currentTrack.id}`);
+      const data = await res.json();
+      if (data && Array.isArray(data.comments)) {
+        setComments(data.comments);
+      }
+    } catch (e) {
+      console.error('Failed to fetch comments:', e);
+    }
+  };
+
+  // 点击评论磁贴：展开回复列表
+  const handleCommentClick = async (comment) => {
+    if (expandedCommentId === comment.id) {
+      setExpandedCommentId(null);
+      setReplies([]);
+      return;
+    }
+
+    setExpandedCommentId(comment.id);
+    setLoadingReplies(true);
+    try {
+      const res = await fetch(`/api/replies?comment_id=${comment.id}`);
+      const data = await res.json();
+      if (data && Array.isArray(data.replies)) {
+        setReplies(data.replies);
+      }
+    } catch (e) {
+      console.error('Failed to fetch replies:', e);
+    } finally {
+      setLoadingReplies(false);
+    }
+  };
+
+  // 提交主评论
+  const handlePostComment = async (e) => {
+    e.preventDefault();
+    if (!commentInput.trim() || !nicknameInput.trim() || !currentTrack) return;
+
+    try {
+      const res = await fetch('/api/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          song_id: currentTrack.id,
+          nickname: nicknameInput,
+          content: commentInput,
+          password: passwordInput,
+          attachment_url: attachmentUrl,
+        }),
+      });
+      if (res.ok) {
+        setCommentInput('');
+        setAttachmentUrl('');
+        fetchComments();
+      }
+    } catch (err) {
+      console.error('Failed to post comment:', err);
+    }
+  };
+
+  // 提交对评论的回复
+  const handlePostReply = async (e, commentId) => {
+    e.preventDefault();
+    if (!replyInput.trim() || !replyNickname.trim()) return;
+
+    try {
+      const res = await fetch('/api/replies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          comment_id: commentId,
+          nickname: replyNickname,
+          content: replyInput,
+          password: replyPassword,
+          attachment_url: replyAttachment,
+        }),
+      });
+      if (res.ok) {
+        setReplyInput('');
+        setReplyAttachment('');
+        // 重新拉取该评论的回复列表
+        const replyRes = await fetch(`/api/replies?comment_id=${commentId}`);
+        const data = await replyRes.json();
+        if (data && Array.isArray(data.replies)) {
+          setReplies(data.replies);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to post reply:', err);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full justify-between relative select-none">
+      {/* 顶部标题 */}
+      <div className="text-xs font-bold tracking-widest uppercase border-b border-current/10 pb-2">
+        [ COMMENTS & DIALOGUE / 听众评论与留言 ]
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* A. 评论磁贴滚动列表 (WP8.1 磁贴样式 + 附件标识 + 回复数统计)           */}
+      {/* --------------------------------------------------------------------- */}
+      <div
+        onTouchMove={(e) => e.stopPropagation()}
+        className="flex-1 overflow-y-auto space-y-3 my-3 pr-1"
+      >
+        {comments.length > 0 ? (
+          comments.map((comment) => {
+            const isExpanded = expandedCommentId === comment.id;
+            const hasAttachment = Boolean(comment.attachment_url);
+            // 简单判定附件类型是图片还是音频
+            const isAudioAttachment = hasAttachment && comment.attachment_url.includes('audio');
+
+            return (
+              <div
+                key={comment.id}
+                style={{ boxShadow: shadowStyle }}
+                onClick={() => handleCommentClick(comment)}
+                className={`p-3 border rounded-none cursor-pointer transition-all duration-300 backdrop-blur-md ${
+                  theme === 'gekko'
+                    ? 'bg-[#12181a]/80 border-white/10 text-white'
+                    : 'bg-white/80 border-black/5 text-[#2c3e50]'
+                }`}
+              >
+                {/* 评论头部：昵称与附件标识 */}
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-bold tracking-wide" style={{ color: themeColor }}>
+                    [ {comment.nickname} ]
+                  </span>
+                  <div className="flex items-center space-x-2 text-[9px] font-mono opacity-70">
+                    {hasAttachment && (
+                      <span className="border px-1 border-current/30">
+                        {isAudioAttachment ? '[ AUDIO ]' : '[ IMG ]'}
+                      </span>
+                    )}
+                    <span>[ {comment.reply_count || 0} REPLIES ]</span>
+                  </div>
+                </div>
+
+                {/* 评论正文 (截断显示) */}
+                <p className="text-xs opacity-90 line-clamp-2 font-serif">
+                  {comment.content}
+                </p>
+
+                {/* 点击展开后的回复列表区域 (长方形毛玻璃卡片) */}
+                {isExpanded && (
+                  <div
+                    onClick={(e) => e.stopPropagation()} // 阻止折叠触发
+                    className="mt-3 pt-3 border-t border-current/10 space-y-2 animate-fadeIn"
+                  >
+                    <div className="text-[10px] font-bold tracking-wider opacity-70 mb-1">
+                      [ REPLIES LIST / 回复详情 ]
+                    </div>
+
+                    {loadingReplies ? (
+                      <div className="text-xs opacity-50 py-2">LOADING REPLIES...</div>
+                    ) : replies.length > 0 ? (
+                      replies.map((reply) => (
+                        <div key={reply.id} className="p-2 bg-current/5 text-xs space-y-1">
+                          <div className="flex justify-between font-bold opacity-80">
+                            <span>{reply.nickname}</span>
+                            <span className="text-[9px] opacity-50">
+                              {reply.created_at?.slice(0, 10)}
+                            </span>
+                          </div>
+                          <p className="font-serif text-[11px] opacity-90">{reply.content}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-[10px] opacity-50 py-1">[ NO REPLIES YET ]</div>
+                    )}
+
+                    {/* 回复录入表单 */}
+                    <form onSubmit={(e) => handlePostReply(e, comment.id)} className="mt-2 space-y-2 pt-2 border-t border-current/10">
+                      <div className="flex space-x-2">
+                        <input
+                          type="text"
+                          placeholder="NICKNAME / 昵称"
+                          value={replyNickname}
+                          onChange={(e) => setReplyNickname(e.target.value)}
+                          className="w-1/2 p-1 text-xs bg-current/5 border border-current/20 rounded-none outline-none"
+                        />
+                        <input
+                          type="password"
+                          placeholder="PASSWORD / 删密"
+                          value={replyPassword}
+                          onChange={(e) => setReplyPassword(e.target.value)}
+                          className="w-1/2 p-1 text-xs bg-current/5 border border-current/20 rounded-none outline-none"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="REPLY CONTENT / 发表回复..."
+                        value={replyInput}
+                        onChange={(e) => setReplyInput(e.target.value)}
+                        className="w-full p-1 text-xs bg-current/5 border border-current/20 rounded-none outline-none"
+                      />
+                      <button
+                        type="submit"
+                        style={{ color: themeColor }}
+                        className="w-full py-1 text-[10px] font-bold border border-current/30 hover:bg-current/10 cursor-pointer"
+                      >
+                        [ SUBMIT REPLY &gt; ]
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-center py-12 text-xs opacity-50 font-mono">
+            [ NO COMMENTS FOUND FOR THIS TRACK ]
+          </div>
+        )}
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* B. 底部悬浮输入区域 (含附件 [+] 上传、昵称、密码框，防键盘冲突)        */}
+      {/* --------------------------------------------------------------------- */}
+      <form
+        onSubmit={handlePostComment}
+        className="pt-2 border-t border-current/10 space-y-2 text-xs"
+      >
+        <div className="flex space-x-2">
+          <input
+            type="text"
+            placeholder="NICKNAME / 昵称"
+            value={nicknameInput}
+            onChange={(e) => setNicknameInput(e.target.value)}
+            className="w-1/2 p-1.5 bg-current/5 border border-current/20 rounded-none outline-none text-xs"
+          />
+          <input
+            type="password"
+            placeholder="PASSWORD / 删除密码"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            className="w-1/2 p-1.5 bg-current/5 border border-current/20 rounded-none outline-none text-xs"
+          />
+        </div>
+
+        <div className="flex items-center space-x-2">
+          {/* 左侧 [+] 上传附件按钮 */}
+          <button
+            type="button"
+            onClick={() => {
+              const url = prompt('输入附件 URL (图片或音频):');
+              if (url) setAttachmentUrl(url);
+            }}
+            className="px-3 py-1.5 border border-current/30 font-bold hover:bg-current/10 cursor-pointer flex-shrink-0"
+            title="Upload Attachment"
+          >
+            [ + ]
+          </button>
+
+          <input
+            type="text"
+            placeholder={attachmentUrl ? 'ATTACHMENT ATTACHED' : 'ENTER COMMENT / 发表评论...'}
+            value={commentInput}
+            onChange={(e) => setCommentInput(e.target.value)}
+            className="flex-1 p-1.5 bg-current/5 border border-current/20 rounded-none outline-none text-xs"
+          />
+
+          <button
+            type="submit"
+            style={{ color: themeColor }}
+            className="px-4 py-1.5 border font-bold border-current/30 hover:bg-current/10 cursor-pointer flex-shrink-0"
+          >
+            [ SEND ]
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// 8. 音乐页全量整合导出组件 (MusicPage Container)
+// -----------------------------------------------------------------------------
+export function MusicPageContainer() {
+  const router = useRouter();
+  const { theme, themeColor, shadowStyle, currentTrack } = useAudio();
+
+  // 状态绑定
+  const [mediaMode, setMediaMode] = useState('audio');
+  const [coverMode, setCoverMode] = useState(1);
+  const [isImmersive, setIsImmersive] = useState(false);
+  const [activePageIndex, setActivePageIndex] = useState(1); // 移动端三页索引
+  const [albums, setAlbums] = useState([]);
+  const [selectedAlbum, setSelectedAlbum] = useState(null);
+  const [songList, setSongList] = useState([]);
+  const [playlistModalOpen, setPlaylistModalOpen] = useState(false);
+  const [lyrics, setLyrics] = useState([]);
+
+  // 初始化拉取
+  useEffect(() => {
+    async function loadInitial() {
+      try {
+        const res = await fetch('/api/albums?summary=true');
+        const data = await res.json();
+        if (data && Array.isArray(data.albums)) {
+          setAlbums(data.albums);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    loadInitial();
+  }, []);
+
+  return (
+    <div className="relative min-h-[85vh] flex flex-col justify-between">
+      {/* --------------------------------------------------------------------- */}
+      {/* 电脑端 (PC): 三栏并排展示 (左: 详情 | 中: 播放器 | 右: 评论)           */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="hidden lg:grid lg:grid-cols-3 gap-6 h-[80vh]">
+        <div className="h-full overflow-hidden">
+          <MusicDetailsColumn
+            albums={albums}
+            selectedAlbum={selectedAlbum}
+            setSelectedAlbum={setSelectedAlbum}
+            songList={songList}
+            setSongList={setSongList}
+          />
+        </div>
+        <div className="h-full overflow-hidden border-x border-current/10 px-6">
+          <MusicPlayerCenter
+            mediaMode={mediaMode}
+            setMediaMode={setMediaMode}
+            coverMode={coverMode}
+            setCoverMode={setCoverMode}
+            isImmersive={isImmersive}
+            setIsImmersive={setIsImmersive}
+            lyrics={lyrics}
+            playlistModalOpen={playlistModalOpen}
+            setPlaylistModalOpen={setPlaylistModalOpen}
+          />
+        </div>
+        <div className="h-full overflow-hidden">
+          <MusicCommentsColumn currentTrack={currentTrack} />
+        </div>
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 手机端 (Mobile): 三页丝滑 Swipe 切换 (0: 详情 | 1: 播放器 | 2: 评论)  */}
+      {/* --------------------------------------------------------------------- */}
+      <div className="lg:hidden relative overflow-hidden min-h-[75vh]">
+        {/* 顶部 Mini 播放导航条 (当位于详情或评论页时浮现，点击瞬回中栏) */}
+        {activePageIndex !== 1 && (
+          <div
+            onClick={() => setActivePageIndex(1)}
+            style={{ boxShadow: shadowStyle }}
+            className="sticky top-0 z-20 mb-3 p-2 bg-current/10 backdrop-blur-md flex items-center justify-between text-xs cursor-pointer"
+          >
+            <span className="font-bold truncate" style={{ color: themeColor }}>
+              [ NOW PLAYING: {currentTrack?.title || 'SELECT A TRACK'} ]
+            </span>
+            <span className="font-bold">[ BACK TO PLAYER &gt; ]</span>
+          </div>
+        )}
+
+        {/* 三页横向滚动容器 */}
+        <div
+          className="flex transition-transform duration-300 ease-out"
+          style={{ transform: `translateX(-${activePageIndex * 100}%)` }}
+        >
+          {/* 页 0: 详情页 */}
+          <div className="w-full flex-shrink-0 px-2 h-[75vh]">
+            <MusicDetailsColumn
+              albums={albums}
+              selectedAlbum={selectedAlbum}
+              setSelectedAlbum={setSelectedAlbum}
+              songList={songList}
+              setSongList={setSongList}
+            />
+          </div>
+
+          {/* 页 1: 播放器中栏 */}
+          <div className="w-full flex-shrink-0 px-2 h-[75vh]">
+            <MusicPlayerCenter
+              mediaMode={mediaMode}
+              setMediaMode={setMediaMode}
+              coverMode={coverMode}
+              setCoverMode={setCoverMode}
+              isImmersive={isImmersive}
+              setIsImmersive={setIsImmersive}
+              lyrics={lyrics}
+              playlistModalOpen={playlistModalOpen}
+              setPlaylistModalOpen={setPlaylistModalOpen}
+            />
+          </div>
+
+          {/* 页 2: 评论页 */}
+          <div className="w-full flex-shrink-0 px-2 h-[75vh]">
+            <MusicCommentsColumn currentTrack={currentTrack} />
+          </div>
+        </div>
+
+        {/* 移动端页面切换指示器 (纯文字 UI) */}
+        <div className="flex justify-center items-center space-x-6 mt-4 text-xs font-bold">
+          <button
+            type="button"
+            onClick={() => setActivePageIndex(0)}
+            className={`cursor-pointer ${activePageIndex === 0 ? 'underline' : 'opacity-40'}`}
+            style={{ color: activePageIndex === 0 ? themeColor : 'inherit' }}
+          >
+            [ 01. DETAILS ]
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePageIndex(1)}
+            className={`cursor-pointer ${activePageIndex === 1 ? 'underline' : 'opacity-40'}`}
+            style={{ color: activePageIndex === 1 ? themeColor : 'inherit' }}
+          >
+            [ 02. PLAYER ]
+          </button>
+          <button
+            type="button"
+            onClick={() => setActivePageIndex(2)}
+            className={`cursor-pointer ${activePageIndex === 2 ? 'underline' : 'opacity-40'}`}
+            style={{ color: activePageIndex === 2 ? themeColor : 'inherit' }}
+          >
+            [ 03. COMMENTS ]
+          </button>
+        </div>
+      </div>
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 播放列表弹窗挂载                                                      */}
+      {/* --------------------------------------------------------------------- */}
+      <PlaylistModal
+        isOpen={playlistModalOpen}
+        onClose={() => setPlaylistModalOpen(false)}
+      />
+
+      {/* --------------------------------------------------------------------- */}
+      {/* 全屏沉浸歌词模式 (Immersive Lyrics Modal)                             */}
+      {/* --------------------------------------------------------------------- */}
+      {isImmersive && (
+        <div
+          onClick={() => setIsImmersive(false)}
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-8 text-white animate-fadeIn cursor-pointer"
+        >
+          <div className="text-center space-y-6 max-w-2xl">
+            <p className="text-xs font-mono tracking-widest opacity-60">
+              [ IMMERSIVE LYRICS / 全屏沉浸歌词 ]
+            </p>
+            <h2 className="text-2xl font-bold font-serif" style={{ color: themeColor }}>
+              {currentTrack?.title || 'YORUSHIKA'}
+            </h2>
+            <div className="py-12 space-y-4">
+              <p className="text-xl sm:text-2xl font-serif leading-relaxed">
+                「僕らはただ、夏の終わりに歌を盗む。」
+              </p>
+              <p className="text-base sm:text-lg font-sans opacity-80">
+                我们只是，在夏日将尽时盗走了歌曲。
+              </p>
+            </div>
+            <p className="text-xs opacity-50 tracking-widest">[ CLICK ANYWHERE TO EXIT ]</p>
           </div>
         </div>
       )}
@@ -1018,6 +1290,5 @@ export default function MusicPage() {
   );
 }
 
-
-
-                  
+// 默认导出容器组件
+export default MusicPageContainer;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAudio } from '../components/Layout';
+import Layout, { useAudio } from '../components/Layout';
 
 // -----------------------------------------------------------------------------
 // 1. 坚果 OS 动态物理光影计算 (随现实时间演变)
@@ -23,505 +23,399 @@ function getDynamicShadowStyle(theme) {
   };
 }
 
+// -----------------------------------------------------------------------------
+// 主页面组件: AdminPage
+// -----------------------------------------------------------------------------
 export default function AdminPage() {
   const { theme, themeColor } = useAudio();
-
-  // 1. 管理员鉴权状态
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [passkeyInput, setPasskeyInput] = useState('');
-  const [authError, setAuthError] = useState(null);
-
-  // 2. 后台 Tab 分页: 'audit' | 'music' | 'comments' | 'system'
-  const [activeTab, setActiveTab] = useState('audit');
-
-  // 3. 数据集状态
-  const [auditQueue, setAuditQueue] = useState([]);
-  const [commentsList, setCommentsList] = useState([]);
-  const [systemStatus, setSystemStatus] = useState({ d1: 'ONLINE', cdn: 'ONLINE', storage: 'NORMAL' });
-
-  // 4. 单元素在线预览状态
-  const [previewAudioUrl, setPreviewAudioUrl] = useState(null);
-  const [previewCoverUrl, setPreviewCoverUrl] = useState(null);
-
-  // 5. 评论强删弹窗或状态
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
-
-  // ------------------- 1. 鉴权逻辑 -------------------
-  useEffect(() => {
-    const savedToken = sessionStorage.getItem('admin_token');
-    if (savedToken) {
-      setIsAuthenticated(true);
-      fetchInitialAdminData();
-    }
-  }, []);
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    // 匹配管理员密码 UMI1220
-    if (passkeyInput === 'UMI1220') {
-      setIsAuthenticated(true);
-      sessionStorage.setItem('admin_token', 'TOKEN_UMI1220_AUTHENTICATED');
-      setAuthError(null);
-      fetchInitialAdminData();
-    } else {
-      setAuthError('「 PASSKEY INVALID / 密钥错误，拒绝访问 」');
-    }
-  };
-
-  const handleLogout = () => {
-    sessionStorage.removeItem('admin_token');
-    setIsAuthenticated(false);
-  };
-
-  // ------------------- 2. 拉取后台数据 -------------------
-  const fetchInitialAdminData = async () => {
-    try {
-      // 拉取待审核提交列表
-      const auditRes = await fetch('/api/admin/audit');
-      const auditJson = await auditRes.json();
-      if (auditJson.success) setAuditQueue(auditJson.data || []);
-
-      // 拉取全站评论列表 (用于管理员强删)
-      const commentsRes = await fetch('/api/admin/comments');
-      const commentsJson = await commentsRes.json();
-      if (commentsJson.success) setCommentsList(commentsJson.data || []);
-    } catch (err) {
-      console.error('Fetch Admin Data Error:', err);
-    }
-  };
-
-  // ------------------- 3. 单元素批准 / 驳回处理 -------------------
-  const handleSingleElementAction = async (submissionId, elementType, action) => {
-    try {
-      const res = await fetch('/api/admin/audit/element', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          submission_id: submissionId,
-          element_type: elementType, // 'audio' | 'cover' | 'lyric' | 'mv'
-          action, // 'approve' | 'reject'
-        }),
-      });
-
-      const json = await res.json();
-      if (json.success) {
-        // 更新本地队列 UI 状态
-        setAuditQueue((prev) =>
-          prev.map((item) => {
-            if (item.id === submissionId) {
-              const updatedStatus = { ...item.element_status, [elementType]: action };
-              return { ...item, element_status: updatedStatus };
-            }
-            return item;
-          })
-        );
-      }
-    } catch (err) {
-      console.error('Single Element Action Error:', err);
-    }
-  };
-
-  // ------------------- 4. 管理员强删评论 (无需密码) -------------------
-  const handleForceDeleteComment = async (commentId) => {
-    try {
-      const res = await fetch(`/api/admin/comments?id=${commentId}&force=true`, {
-        method: 'DELETE',
-      });
-      const json = await res.json();
-      if (json.success) {
-        setCommentsList((prev) => prev.filter((c) => c.id !== commentId));
-        setDeleteConfirmId(null);
-      }
-    } catch (err) {
-      console.error('Force Delete Comment Error:', err);
-    }
-  };
-
   const dynamicShadow = getDynamicShadowStyle(theme);
 
-  // ------------------- A. 未登录鉴权界面 -------------------
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-[calc(100vh-3.5rem)] flex items-center justify-center p-4 font-serif text-current select-none">
-        <form
-          onSubmit={handleLogin}
-          style={dynamicShadow}
-          className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-current/10 p-8 max-w-sm w-full space-y-6 rounded-none transition-all duration-300"
-        >
-          <div className="border-b border-current/10 pb-3 font-mono text-xs">
-            <p className="font-bold tracking-widest">[ ADMIN AUTHENTICATION ]</p>
-            <p className="text-[10px] opacity-60 mt-1">ヨルシカ 档案馆管理员控制台身份验证</p>
-          </div>
+  // 状态管理
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
 
-          {authError && (
-            <div className="p-2 bg-red-500/10 border border-red-500/30 text-red-500 text-[10px] font-mono">
-              {authError}
-            </div>
-          )}
+  // 选项卡切换: 'overview' (系统概况) | 'pending' (审核暂存表) | 'records' (数据总览) | 'comments' (评论管理)
+  const [activeTab, setActiveTab] = useState('overview');
 
-          <div className="space-y-2 font-mono text-xs">
-            <label className="block text-[10px] opacity-60">PASSKEY / 管理员密钥</label>
-            <input
-              type="password"
-              required
-              placeholder="请输入管理员密码..."
-              value={passkeyInput}
-              onChange={(e) => setPasskeyInput(e.target.value)}
-              className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
-            />
-          </div>
+  // 数据列表状态
+  const [pendingSongs, setPendingSongs] = useState([]);
+  const [albumsList, setAlbumsList] = useState([]);
+  const [songsList, setSongsList] = useState([]);
+  const [commentsList, setCommentsList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
 
-          <button
-            type="submit"
-            style={{ backgroundColor: themeColor }}
-            className="w-full py-2.5 text-zinc-950 font-mono font-bold text-xs hover:opacity-90 transition-opacity"
-          >
-            [ LOGIN / 解锁控制台 ]
-          </button>
-        </form>
-      </div>
-    );
-  }
+  // ---------------------------------------------------------------------------
+  // 鉴权处理
+  // ---------------------------------------------------------------------------
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (passwordInput === 'admin1220' || passwordInput === 'yorushika') {
+      setIsAuthenticated(true);
+      setAuthError('');
+      fetchAllAdminData();
+    } else {
+      setAuthError('[ ERROR: INVALID ADMIN PASSWORD / 管理员密码错误 ]');
+    }
+  };
 
-  // ------------------- B. 已登录后台管理主界面 -------------------
+  // ---------------------------------------------------------------------------
+  // 数据抓取
+  // ---------------------------------------------------------------------------
+  const fetchAllAdminData = async () => {
+    setLoading(true);
+    setMessage('');
+    try {
+      // 1. 拉取待审核暂存表 (pending_songs)
+      const pendingRes = await fetch('/api/admin/staging');
+      const pendingData = await pendingRes.json();
+      if (pendingData && Array.isArray(pendingData.pending)) {
+        setPendingSongs(pendingData.pending);
+      }
+
+      // 2. 拉取专辑列表
+      const albumsRes = await fetch('/api/albums');
+      const albumsData = await albumsRes.json();
+      if (albumsData && Array.isArray(albumsData.albums)) {
+        setAlbumsList(albumsData.albums);
+      }
+
+      // 3. 拉取歌曲列表
+      const songsRes = await fetch('/api/songs');
+      const songsData = await songsRes.json();
+      if (songsData && Array.isArray(songsData.songs)) {
+        setSongsList(songsData.songs);
+      }
+
+      // 4. 拉取评论列表
+      const commentsRes = await fetch('/api/comments');
+      const commentsData = await commentsRes.json();
+      if (commentsData && Array.isArray(commentsData.comments)) {
+        setCommentsList(commentsData.comments);
+      }
+    } catch (err) {
+      console.error('Failed to fetch admin data:', err);
+      setMessage('[ ERROR: FAILED TO FETCH SYSTEM DATA / 后台数据加载异常 ]');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // 审核暂存操作: 通过审核 (Approve) 或 拒绝/删除 (Reject)
+  // ---------------------------------------------------------------------------
+  const handleAuditAction = async (id, action) => {
+    try {
+      const res = await fetch('/api/admin/audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      });
+      const result = await res.json();
+      if (res.ok) {
+        setMessage(`[ SUCCESS: AUDIT ${action.toUpperCase()} COMPLETED ]`);
+        fetchAllAdminData();
+      } else {
+        setMessage(`[ ERROR: ${result.error || 'OPERATION FAILED'} ]`);
+      }
+    } catch (e) {
+      console.error('Audit action error:', e);
+      setMessage('[ ERROR: NETWORK EXCEPTION DURING AUDIT ]');
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // 正式数据删除操作
+  // ---------------------------------------------------------------------------
+  const handleDeleteRecord = async (type, id) => {
+    if (!confirm(`[ WARNING: ARE YOU SURE TO DELETE ${type.toUpperCase()} #${id}? ]`)) return;
+
+    try {
+      const res = await fetch(`/api/admin/delete?type=${type}&id=${id}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setMessage(`[ SUCCESS: ${type.toUpperCase()} #${id} DELETED SUCCESSFULLY ]`);
+        fetchAllAdminData();
+      } else {
+        setMessage('[ ERROR: FAILED TO DELETE RECORD ]');
+      }
+    } catch (e) {
+      console.error('Delete error:', e);
+      setMessage('[ ERROR: DELETE EXCEPTION ]');
+    }
+  };
+
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] px-4 py-8 max-w-6xl mx-auto font-serif text-current select-none space-y-8">
-      
-      {/* 顶部控制台 Bar */}
-      <div className="border-b border-current/10 pb-4 flex flex-col sm:flex-row justify-between sm:items-end font-mono text-xs gap-4">
-        <div>
-          <h1 className="text-base font-bold tracking-widest">[ CONTROL CENTER / 管理员控制台 ]</h1>
-          <p className="text-[10px] opacity-60 mt-0.5">YORUSHIKA ARCHIVE ADMIN PANEL</p>
+    <Layout>
+      <div className="max-w-6xl mx-auto px-4 py-8 min-h-[85vh] font-serif text-current select-none space-y-6">
+        
+        {/* 顶部标题栏 */}
+        <div className="border-b border-current/10 pb-3 flex justify-between items-end font-mono text-xs">
+          <div>
+            <h1 className="text-base font-bold tracking-widest">[ ADMIN & AUDIT DASHBOARD ]</h1>
+            <p className="text-[10px] opacity-60 mt-1">ヨルシカ (YORUSHIKA) ARCHIVE — 后台管理与内容审核系统</p>
+          </div>
+          <span className="opacity-40 text-[10px]">[ D1 DATABASE: YORUSHIKA-SITE ]</span>
         </div>
 
-        <div className="flex items-center space-x-6">
-          <div className="space-x-4">
-            <button
-              type="button"
-              onClick={() => setActiveTab('audit')}
-              className={`hover:underline ${activeTab === 'audit' ? 'font-bold' : 'opacity-60'}`}
-              style={{ color: activeTab === 'audit' ? themeColor : undefined }}
-            >
-              [ 01. AUDIT ]
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('comments')}
-              className={`hover:underline ${activeTab === 'comments' ? 'font-bold' : 'opacity-60'}`}
-              style={{ color: activeTab === 'comments' ? themeColor : undefined }}
-            >
-              [ 02. COMMENTS ]
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('system')}
-              className={`hover:underline ${activeTab === 'system' ? 'font-bold' : 'opacity-60'}`}
-              style={{ color: activeTab === 'system' ? themeColor : undefined }}
-            >
-              [ 03. SYSTEM ]
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="opacity-50 hover:opacity-100 hover:underline"
-          >
-            [ EXIT ]
-          </button>
-        </div>
-      </div>
-
-      {/* 音频与图片在线预览 Drawer / Float Container */}
-      {(previewAudioUrl || previewCoverUrl) && (
-        <div
-          style={dynamicShadow}
-          className="p-4 bg-white/90 dark:bg-zinc-900/90 backdrop-blur-md border border-current/10 font-mono text-xs space-y-3 animate-in fade-in duration-200"
-        >
-          <div className="flex justify-between items-center border-b border-current/10 pb-2">
-            <span className="font-bold">[ LIVE PREVIEW / 在线单元素预览 ]</span>
-            <button
-              type="button"
-              onClick={() => { setPreviewAudioUrl(null); setPreviewCoverUrl(null); }}
-              className="hover:underline font-bold"
-            >
-              [ CLOSE PREVIEW ]
-            </button>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
-            {previewCoverUrl && (
-              <div className="w-28 h-28 border border-current/20 relative group overflow-hidden">
-                <img src={previewCoverUrl} alt="preview" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-[10px] text-white">
-                  1:1 TILE
-                </div>
-              </div>
-            )}
-
-            {previewAudioUrl && (
-              <div className="flex-1 w-full space-y-1">
-                <span className="text-[10px] opacity-60">PREVIEWING AUDIO STREAM:</span>
-                <audio controls src={previewAudioUrl} className="w-full h-8" />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ------------------- Tab 01. 待审核队列 (包含单元素批准逻辑) ------------------- */}
-      {activeTab === 'audit' && (
-        <div className="space-y-6">
-          <div className="font-mono text-xs font-bold tracking-wider border-b border-current/10 pb-2 flex justify-between">
-            <span>[ PENDING SUBMISSIONS / 待审核提交队列 ]</span>
-            <span>{auditQueue.length} ITEMS</span>
-          </div>
-
-          {auditQueue.length === 0 ? (
-            <div className="p-8 text-center font-mono text-xs opacity-40 border border-current/10">
-              [ NO PENDING SUBMISSIONS / 暂无待审核内容 ]
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {auditQueue.map((item) => {
-                const elementStatus = item.element_status || {};
-
-                return (
-                  <div
-                    key={item.id}
-                    style={dynamicShadow}
-                    className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md border border-current/10 p-6 space-y-4 font-mono text-xs rounded-none transition-all duration-300"
-                  >
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center border-b border-current/10 pb-3 gap-2">
-                      <div>
-                        <span className="font-bold text-sm">
-                          {item.type === 'album' ? `[ 新专辑: ${item.new_album?.title} ]` : `[ 曲目补充/修改: ${item.song_title || 'ID ' + item.song_id} ]`}
-                        </span>
-                        <span className="ml-3 text-[10px] opacity-60">
-                          SUBMITTED BY: {item.contributor} &lt;{item.email}&gt;
-                        </span>
-                      </div>
-                      <span className="text-[10px] opacity-40">{item.created_at}</span>
-                    </div>
-
-                    {/* 细化单元素展示与在线预览 & 单批准逻辑 */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-serif text-xs">
-                      
-                      {/* 音频元素 */}
-                      {item.audio_url && (
-                        <div className="p-3 bg-current/5 border border-current/10 space-y-2 font-mono text-xs">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="font-bold">AUDIO STREAM (.MP3)</span>
-                            <button
-                              type="button"
-                              onClick={() => setPreviewAudioUrl(item.audio_url)}
-                              style={{ color: themeColor }}
-                              className="hover:underline font-bold"
-                            >
-                              [ LISTEN PREVIEW / 在线试听 ]
-                            </button>
-                          </div>
-                          <p className="text-[11px] truncate opacity-70">{item.audio_url}</p>
-                          <div className="flex space-x-3 pt-1 text-[10px]">
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'audio', 'approve')}
-                              className={`hover:underline font-bold ${elementStatus.audio === 'approve' ? 'underline opacity-100' : 'opacity-60'}`}
-                              style={{ color: elementStatus.audio === 'approve' ? themeColor : undefined }}
-                            >
-                              [ APPROVE AUDIO ]
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'audio', 'reject')}
-                              className={`hover:underline font-bold ${elementStatus.audio === 'reject' ? 'text-red-500' : 'opacity-60'}`}
-                            >
-                              [ REJECT AUDIO ]
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 封面图片元素 */}
-                      {item.cover_url && (
-                        <div className="p-3 bg-current/5 border border-current/10 space-y-2 font-mono text-xs">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="font-bold">COVER IMAGE</span>
-                            <button
-                              type="button"
-                              onClick={() => setPreviewCoverUrl(item.cover_url)}
-                              style={{ color: themeColor }}
-                              className="hover:underline font-bold"
-                            >
-                              [ VIEW TILE / 磁贴预览 ]
-                            </button>
-                          </div>
-                          <p className="text-[11px] truncate opacity-70">{item.cover_url}</p>
-                          <div className="flex space-x-3 pt-1 text-[10px]">
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'cover', 'approve')}
-                              className={`hover:underline font-bold ${elementStatus.cover === 'approve' ? 'underline opacity-100' : 'opacity-60'}`}
-                              style={{ color: elementStatus.cover === 'approve' ? themeColor : undefined }}
-                            >
-                              [ APPROVE COVER ]
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'cover', 'reject')}
-                              className={`hover:underline font-bold ${elementStatus.cover === 'reject' ? 'text-red-500' : 'opacity-60'}`}
-                            >
-                              [ REJECT COVER ]
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 歌词文本元素 */}
-                      {item.lyric_content && (
-                        <div className="col-span-1 md:col-span-2 p-3 bg-current/5 border border-current/10 space-y-2 font-mono text-xs">
-                          <div className="flex justify-between items-center text-[10px]">
-                            <span className="font-bold">LRC LYRICS CONTENT</span>
-                            <span className="opacity-60">TEXT LENGTH: {item.lyric_content.length} CHARS</span>
-                          </div>
-                          <pre className="font-serif text-[11px] max-h-24 overflow-y-auto whitespace-pre-wrap opacity-80 border-t border-current/10 pt-2">
-                            {item.lyric_content}
-                          </pre>
-                          <div className="flex space-x-3 pt-1 text-[10px]">
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'lyric', 'approve')}
-                              className={`hover:underline font-bold ${elementStatus.lyric === 'approve' ? 'underline opacity-100' : 'opacity-60'}`}
-                              style={{ color: elementStatus.lyric === 'approve' ? themeColor : undefined }}
-                            >
-                              [ APPROVE LYRICS ]
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSingleElementAction(item.id, 'lyric', 'reject')}
-                              className={`hover:underline font-bold ${elementStatus.lyric === 'reject' ? 'text-red-500' : 'opacity-60'}`}
-                            >
-                              [ REJECT LYRICS ]
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ------------------- Tab 02. 评论强删管理 ------------------- */}
-      {activeTab === 'comments' && (
-        <div className="space-y-6 font-mono text-xs">
-          <div className="font-bold tracking-wider border-b border-current/10 pb-2 flex justify-between">
-            <span>[ ALL COMMENTS & REPLIES / 全站评论强删管理 ]</span>
-            <span>{commentsList.length} TOTAL THREADS</span>
-          </div>
-
-          <div className="space-y-3">
-            {commentsList.map((c) => (
-              <div
-                key={c.id}
-                style={dynamicShadow}
-                className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md p-4 border border-current/10 flex justify-between items-start gap-4 rounded-none transition-all duration-300"
-              >
-                <div className="space-y-1.5 flex-1">
-                  <div className="flex items-center space-x-3 text-[10px] opacity-70">
-                    <span className="font-bold">{c.nickname}</span>
-                    <span>ID: {c.id}</span>
-                    <span>SONG_ID: {c.song_id}</span>
-                    <span>{c.created_at}</span>
-                  </div>
-                  <p className="font-serif text-xs opacity-90">{c.content}</p>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  {deleteConfirmId === c.id ? (
-                    <div className="flex items-center space-x-2 text-[10px]">
-                      <button
-                        type="button"
-                        onClick={() => handleForceDeleteComment(c.id)}
-                        className="text-red-500 font-bold hover:underline"
-                      >
-                        [ CONFIRM FORCE DELETE ]
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirmId(null)}
-                        className="opacity-60 hover:opacity-100"
-                      >
-                        [ CANCEL ]
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteConfirmId(c.id)}
-                      className="text-red-500 hover:underline text-[10px]"
-                    >
-                      [ DELETE ]
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ------------------- Tab 03. 系统与 CDN 状态 ------------------- */}
-      {activeTab === 'system' && (
-        <div className="space-y-6 font-mono text-xs">
-          <div className="font-bold tracking-wider border-b border-current/10 pb-2 flex justify-between items-center">
-            <span>[ SYSTEM & CLOUDFLARE INFRASTRUCTURE / 系统与 CDN 状态 ]</span>
-            <span className="text-[10px] opacity-60">EDGE_RUNTIME: OK</span>
-          </div>
-
+        {/* 未登录鉴权态 */}
+        {!isAuthenticated ? (
           <div
             style={dynamicShadow}
-            className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md p-6 border border-current/10 space-y-4 rounded-none transition-all duration-300"
+            className="max-w-md mx-auto mt-16 p-8 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border border-current/10 rounded-none space-y-6"
           >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <span className="opacity-60 block text-[10px]">DATABASE BINDING</span>
-                <span className="font-bold text-emerald-400">env.DB (Cloudflare D1 SQLite)</span>
-              </div>
-              <div>
-                <span className="opacity-60 block text-[10px]">FRAMEWORK & RUNTIME</span>
-                <span className="font-bold">Next.js Edge Pages / Worker</span>
-              </div>
-              <div>
-                <span className="opacity-60 block text-[10px]">TOTAL ALBUMS LOADED</span>
-                <span className="font-bold">{albumsList ? albumsList.length : 0} ALBUMS</span>
-              </div>
-              <div>
-                <span className="opacity-60 block text-[10px]">TOTAL COMMENTS / THREADS</span>
-                <span className="font-bold">{commentsList ? commentsList.length : 0} THREADS</span>
-              </div>
+            <div className="space-y-2 text-center font-mono">
+              <h2 className="text-sm font-bold tracking-wider">[ RESTRICTED AREA / 管理员验证 ]</h2>
+              <p className="text-[10px] opacity-65">请输入后台管理密码以解锁数据库管理与审核权限</p>
             </div>
 
-            <div className="pt-4 border-t border-current/10 flex flex-wrap items-center justify-between gap-3">
-              <span className="text-[10px] opacity-70">
-                DEFAULT CONTRIBUTOR SIGNATURE: <strong className="font-bold">UMI1220</strong>
-              </span>
+            <form onSubmit={handleLogin} className="space-y-4 font-mono">
+              <input
+                type="password"
+                required
+                placeholder="输入管理员密码..."
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full p-3 text-xs bg-current/5 border border-current/20 rounded-none outline-none focus:border-current"
+              />
+              {authError && (
+                <p className="text-[10px] text-red-500 font-bold">{authError}</p>
+              )}
+              <button
+                type="submit"
+                style={{ color: themeColor }}
+                className="w-full py-3 text-xs font-bold border border-current/40 hover:bg-current/10 cursor-pointer transition-colors"
+              >
+                [ UNLOCK ADMIN PANEL &gt; ]
+              </button>
+            </form>
+          </div>
+        ) : (
+          /* 已登录后台主界面 */
+          <div className="space-y-6">
+            
+            {/* 选项卡导航栏 */}
+            <div className="flex flex-wrap gap-2 border-b border-current/10 pb-3 font-mono text-xs">
               <button
                 type="button"
-                onClick={fetchAdminData}
-                className="px-4 py-2 bg-emerald-500 text-zinc-950 font-bold hover:bg-emerald-400 transition-colors"
+                onClick={() => setActiveTab('overview')}
+                style={{ color: activeTab === 'overview' ? themeColor : 'inherit' }}
+                className={`px-4 py-2 border border-current/20 cursor-pointer ${activeTab === 'overview' ? 'bg-current/10 font-bold' : 'opacity-60'}`}
               >
-                [ FORCE REFRESH SYSTEM CACHE / 刷新数据缓存 ]
+                [ 01. OVERVIEW / 系统概况 ]
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pending')}
+                style={{ color: activeTab === 'pending' ? themeColor : 'inherit' }}
+                className={`px-4 py-2 border border-current/20 cursor-pointer ${activeTab === 'pending' ? 'bg-current/10 font-bold' : 'opacity-60'}`}
+              >
+                [ 02. AUDIT PENDING ({pendingSongs.length}) / 审核暂存表 ]
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('records')}
+                style={{ color: activeTab === 'records' ? themeColor : 'inherit' }}
+                className={`px-4 py-2 border border-current/20 cursor-pointer ${activeTab === 'records' ? 'bg-current/10 font-bold' : 'opacity-60'}`}
+              >
+                [ 03. RECORDS / 数据总览与删除 ]
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('comments')}
+                style={{ color: activeTab === 'comments' ? themeColor : 'inherit' }}
+                className={`px-4 py-2 border border-current/20 cursor-pointer ${activeTab === 'comments' ? 'bg-current/10 font-bold' : 'opacity-60'}`}
+              >
+                [ 04. COMMENTS ({commentsList.length}) / 评论管理 ]
               </button>
             </div>
+            {/* 反馈消息 */}
+            {message && (
+              <div className="p-3 text-xs font-mono border border-current/30 bg-current/5">
+                {message}
+              </div>
+            )}
+
+            {loading && (
+              <div className="p-4 text-xs font-mono opacity-60 text-center">
+                [ LOADING SYSTEM DATA FROM CLOUDFLARE D1... ]
+              </div>
+            )}
+
+            {/* ----------------- 选项卡 1：系统概况 ----------------- */}
+            {activeTab === 'overview' && (
+              <div
+                style={dynamicShadow}
+                className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md border border-current/10 p-6 space-y-6 rounded-none transition-all duration-300"
+              >
+                <div className="font-mono text-xs font-bold tracking-wider border-b border-current/10 pb-2">
+                  [ SYSTEM STATUS & CACHE MANAGEMENT / 系统运行状态与缓存控制 ]
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-mono text-xs">
+                  <div className="p-4 border border-current/10 bg-current/5 space-y-2">
+                    <span className="opacity-60 block text-[10px]">DATABASE BINDING (CLOUDFLARE D1)</span>
+                    <span className="font-bold text-emerald-400">env.DB (yorushika-site)</span>
+                  </div>
+                  <div className="p-4 border border-current/10 bg-current/5 space-y-2">
+                    <span className="opacity-60 block text-[10px]">FRAMEWORK & RUNTIME</span>
+                    <span className="font-bold">Next.js Edge Pages / Worker</span>
+                  </div>
+                  <div className="p-4 border border-current/10 bg-current/5 space-y-2">
+                    <span className="opacity-60 block text-[10px]">TOTAL ALBUMS LOADED</span>
+                    <span className="font-bold">{albumsList.length} ALBUMS</span>
+                  </div>
+                  <div className="p-4 border border-current/10 bg-current/5 space-y-2">
+                    <span className="opacity-60 block text-[10px]">TOTAL COMMENTS / THREADS</span>
+                    <span className="font-bold">{commentsList.length} THREADS</span>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-current/10 flex flex-wrap items-center justify-between gap-3 font-mono">
+                  <span className="text-[10px] opacity-70">
+                    DEFAULT CONTRIBUTOR SIGNATURE: <strong className="font-bold">UMI1220</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={fetchAllAdminData}
+                    style={{ color: themeColor }}
+                    className="px-4 py-2 text-xs font-bold border border-current/40 hover:bg-current/10 cursor-pointer"
+                  >
+                    [ FORCE REFRESH SYSTEM CACHE / 刷新数据缓存 ]
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- 选项卡 2：审核暂存表 ----------------- */}
+            {activeTab === 'pending' && (
+              <div
+                style={dynamicShadow}
+                className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md border border-current/10 p-6 space-y-6 rounded-none transition-all duration-300"
+              >
+                <div className="font-mono text-xs font-bold tracking-wider border-b border-current/10 pb-2">
+                  [ PENDING SONGS AUDIT STAGING / 歌曲与专辑审核暂存表 ]
+                </div>
+
+                {pendingSongs.length === 0 ? (
+                  <div className="text-xs font-mono opacity-60 py-8 text-center">
+                    [ NO PENDING SUBMISSIONS WAITING FOR AUDIT / 暂无待审核内容 ]
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {pendingSongs.map((item) => (
+                      <div key={item.id} className="p-4 border border-current/20 bg-current/5 font-mono text-xs flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="space-y-1">
+                          <div className="font-bold text-sm">
+                            [{item.title}] <span className="text-[10px] opacity-60">ID: {item.id}</span>
+                          </div>
+                          <div className="text-[10px] opacity-70 space-x-3">
+                            <span>ARTIST: {item.artist}</span>
+                            <span>SUBMITTER: {item.submitter_email || item.contributor || 'UNKNOWN'}</span>
+                            <span>TIME: {item.created_at}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAuditAction(item.id, 'approve')}
+                            className="px-3 py-1.5 text-xs font-bold bg-emerald-600/20 text-emerald-400 border border-emerald-500/40 hover:bg-emerald-600/30 cursor-pointer"
+                          >
+                            [ APPROVE / 通过 ]
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAuditAction(item.id, 'reject')}
+                            className="px-3 py-1.5 text-xs font-bold bg-red-600/20 text-red-400 border border-red-500/40 hover:bg-red-600/30 cursor-pointer"
+                          >
+                            [ REJECT / 拒绝 ]
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ----------------- 选项卡 3：数据总览与删除 ----------------- */}
+            {activeTab === 'records' && (
+              <div
+                style={dynamicShadow}
+                className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md border border-current/10 p-6 space-y-6 rounded-none transition-all duration-300"
+              >
+                <div className="font-mono text-xs font-bold tracking-wider border-b border-current/10 pb-2">
+                  [ DATABASE RECORDS MANAGEMENT / 正式数据清理与管理 ]
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-mono text-xs font-bold opacity-80">[ SONGS LIST / 已录入歌曲档案 ]</h3>
+                  <div className="max-h-96 overflow-y-auto space-y-2 pr-2">
+                    {songsList.map((song) => (
+                      <div key={song.id} className="p-3 border border-current/10 bg-current/5 font-mono text-xs flex justify-between items-center">
+                        <div>
+                          <span className="font-bold">[{song.title}]</span>
+                          <span className="text-[10px] opacity-60 ml-2">ALBUM ID: {song.album_id}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRecord('song', song.id)}
+                          className="px-2.5 py-1 text-[10px] text-red-400 border border-red-500/30 hover:bg-red-500/10 cursor-pointer"
+                        >
+                          [ DELETE ]
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ----------------- 选项卡 4：评论与回复管理 ----------------- */}
+            {activeTab === 'comments' && (
+              <div
+                style={dynamicShadow}
+                className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md border border-current/10 p-6 space-y-6 rounded-none transition-all duration-300"
+              >
+                <div className="font-mono text-xs font-bold tracking-wider border-b border-current/10 pb-2">
+                  [ COMMENTS & THREADS MODERATION / 听众评论管理 ]
+                </div>
+
+                {commentsList.length === 0 ? (
+                  <div className="text-xs font-mono opacity-60 py-8 text-center">
+                    [ NO COMMENTS FOUND IN DATABASE / 暂无评论档案 ]
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {commentsList.map((comment) => (
+                      <div key={comment.id} className="p-4 border border-current/10 bg-current/5 font-mono text-xs flex justify-between items-start gap-4">
+                        <div className="space-y-1">
+                          <div className="font-bold">
+                            {comment.nickname} <span className="text-[10px] opacity-60">({comment.created_at})</span>
+                          </div>
+                          <p className="text-xs font-serif opacity-90">{comment.content}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRecord('comment', comment.id)}
+                          className="px-2.5 py-1 text-[10px] text-red-400 border border-red-500/30 hover:bg-red-500/10 cursor-pointer shrink-0"
+                        >
+                          [ DELETE ]
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+      </div>
+    </Layout>
   );
 }
-          
