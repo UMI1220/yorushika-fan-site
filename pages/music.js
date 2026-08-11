@@ -232,10 +232,13 @@ export default function MusicPage() {
           </div>
         </div>
       )}
+    </Layout>   {/* 👈 加这行 */}
+  );            {/* 👈 加这行 */}
+}               {/* 👈 加这行 */}      
 // -----------------------------------------------------------------------------
 // 4. 播放器中栏 (Player Center Column)
 // -----------------------------------------------------------------------------
-export default function MusicPlayerCenter({
+export function MusicPlayerCenter({
   mediaMode,
   setMediaMode,
   coverMode,
