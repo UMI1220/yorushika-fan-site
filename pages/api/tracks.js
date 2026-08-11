@@ -11,12 +11,12 @@ export default async function handler(req) {
     if (req.method === 'GET') {
       // 1. 获取指定歌曲详情
       if (id) {
-        const track = await db
-          .prepare('SELECT * FROM tracks WHERE id = ?')
+        const song = await db
+          .prepare('SELECT * FROM songs WHERE id = ?')
           .bind(id)
           .first();
 
-        if (!track) {
+        if (!song) {
           return new Response(
             JSON.stringify({ success: false, message: '歌曲不存在' }),
             { status: 404, headers: { 'Content-Type': 'application/json' } }
@@ -24,16 +24,16 @@ export default async function handler(req) {
         }
 
         // 规范：若歌曲封面为空，自动拉取对应专辑封面
-        if (!track.cover_url && track.album_id) {
+        if (!song.cover_url && song.album_id) {
           const album = await db
             .prepare('SELECT cover_url FROM albums WHERE id = ?')
-            .bind(track.album_id)
+            .bind(song.album_id)
             .first();
-          if (album) track.cover_url = album.cover_url;
+          if (album) song.cover_url = album.cover_url;
         }
 
         return new Response(
-          JSON.stringify({ success: true, data: track }),
+          JSON.stringify({ success: true, data: song }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
@@ -41,7 +41,7 @@ export default async function handler(req) {
       // 2. 按专辑 ID 批量拉取歌曲
       if (album_id) {
         const { results } = await db
-          .prepare('SELECT * FROM tracks WHERE album_id = ? ORDER BY id ASC')
+          .prepare('SELECT * FROM songs WHERE album_id = ? ORDER BY id ASC')
           .bind(album_id)
           .all();
 

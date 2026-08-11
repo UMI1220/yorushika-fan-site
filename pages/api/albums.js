@@ -5,7 +5,6 @@ export default async function handler(req) {
   const id = searchParams.get('id');
   const summary = searchParams.get('summary');
 
-  // 获取 Cloudflare D1 绑定实例
   const db = process.env.DB;
 
   try {
@@ -25,15 +24,15 @@ export default async function handler(req) {
         }
 
         // 查询该专辑下的所有歌曲
-        const tracks = await db
-          .prepare('SELECT * FROM tracks WHERE album_id = ? ORDER BY id ASC')
+        const songs = await db
+          .prepare('SELECT * FROM songs WHERE album_id = ? ORDER BY id ASC')
           .bind(id)
           .all();
 
         return new Response(
           JSON.stringify({
             success: true,
-            data: { ...album, tracks: tracks.results || [] },
+            data: { ...album, songs: songs.results || [] },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
@@ -43,7 +42,7 @@ export default async function handler(req) {
       if (summary === 'true') {
         const { results } = await db
           .prepare(
-            'SELECT id, title, song_count, artist, cover_url, representative_lyric, release_date FROM albums ORDER BY id DESC'
+            'SELECT id, name, track_count, cover_url, quote, release_date FROM albums ORDER BY id ASC'
           )
           .all();
 
@@ -53,9 +52,9 @@ export default async function handler(req) {
         );
       }
 
-      // 3. 默认拉取全量专辑列表
+      // 3. 拉取所有专辑列表完整版
       const { results } = await db
-        .prepare('SELECT * FROM albums ORDER BY id DESC')
+        .prepare('SELECT * FROM albums ORDER BY id ASC')
         .all();
 
       return new Response(
@@ -64,20 +63,22 @@ export default async function handler(req) {
       );
     }
 
+    // 新增/管理员录入专辑
     if (req.method === 'POST') {
       const body = await req.json();
       const {
-        title,
-        song_count = 0,
+        name,
+        track_count = 0,
         artist = 'ヨルシカ',
         cover_url = '',
-        representative_lyric = '',
-        track_list = '',
+        quote = '',
+        song_list = '[]',
         release_date = '',
         contributor = 'UMI1220',
+        extra_contributors = '',
       } = body;
 
-      if (!title) {
+      if (!name) {
         return new Response(
           JSON.stringify({ success: false, message: '专辑名称不能为空' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -86,18 +87,19 @@ export default async function handler(req) {
 
       const res = await db
         .prepare(
-          `INSERT INTO albums (title, song_count, artist, cover_url, representative_lyric, track_list, release_date, contributor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO albums (name, track_count, artist, cover_url, quote, song_list, release_date, contributor, extra_contributors)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
-          title,
-          song_count,
+          name,
+          track_count,
           artist,
           cover_url,
-          representative_lyric,
-          track_list,
+          quote,
+          typeof song_list === 'string' ? song_list : JSON.stringify(song_list),
           release_date,
-          contributor
+          contributor,
+          extra_contributors
         )
         .run();
 

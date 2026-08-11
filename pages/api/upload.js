@@ -46,111 +46,95 @@ export default async function handler(req) {
   try {
     const body = await req.json();
     const {
-      type = 'track',          // 'track' 或 'album'
-      track_id,                // 修改现有歌曲时的歌曲 id
-      album_id,                // 关联专辑 id
+      mode = 'supplement', // 'supplement' | 'modify'
+      fileType, // 'audio' | 'cover' | 'lyric' | 'comment_attachment'
+      fileName,
+      fileBase64,
+      song_id,
+      track_id,
+      album_id,
       title,
       artist = 'ヨルシカ',
-      fileBase64,              // 上传文件的 Base64 编码
-      fileName,                // 文件名 (含后缀)
-      fileType = 'audio',      // 'audio', 'cover', 'lyric', 'mv'
-      mv_url = '',             // 如果是 MV 链接
-      contributor_email = '',  // 贡献者/修改者邮箱
+      mv_url = '',
+      contributor_email,
     } = body;
 
-    let targetUrl = '';
+    const targetSongId = song_id || track_id;
 
-    // 1. 如果有上传文件，先根据逻辑存入 GitHub
-    if (fileBase64 && fileName) {
-      let folder = 'music';
-      if (fileType === 'cover') folder = 'covers';
-      if (fileType === 'lyric') folder = 'lyrics';
-
-      // 预检查目标歌曲/专辑字段是否已经有数据
-      let isExisting = false;
-      if (track_id) {
-        const existingTrack = await db
-          .prepare('SELECT * FROM tracks WHERE id = ?')
-          .bind(track_id)
-          .first();
-
-        if (existingTrack) {
-          if (fileType === 'audio' && existingTrack.audio_url) isExisting = true;
-          if (fileType === 'cover' && existingTrack.cover_url) isExisting = true;
-          if (fileType === 'lyric' && existingTrack.lyric_url) isExisting = true;
-          if (fileType === 'mv' && existingTrack.mv_url) isExisting = true;
-        }
-      }
-
-      // 如果数据已存在，暂存至 GitHub 'admin/' 目录
-      const destFolder = isExisting ? 'admin' : folder;
-      targetUrl = await uploadToGitHub(destFolder, fileName, fileBase64);
-
-      // 2.【已存在信息 ➔ 暂存审核】写入 pending_tracks 表
-      if (isExisting) {
-        await db
-          .prepare(
-            `INSERT INTO pending_tracks (title, cover_url, artist, audio_url, lyric_url, mv_url, album_id, contributor)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .bind(
-            title || '未命名曲目',
-            fileType === 'cover' ? targetUrl : '',
-            artist,
-            fileType === 'audio' ? targetUrl : '',
-            fileType === 'lyric' ? targetUrl : '',
-            fileType === 'mv' ? mv_url : '',
-            album_id || 1,
-            contributor_email
-          )
-          .run();
-
-        return new Response(
-          JSON.stringify({
-            success: true,
-            isPending: true,
-            message: '该歌曲/专辑已存在原信息，已提交至后台管理员审核暂存！',
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
+    if (!contributor_email) {
+      return new Response(
+        JSON.stringify({ success: false, message: '请输入提交者 Email 方便审核与署名' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
     }
 
-    // 3.【未存在信息 / 空数据 ➔ 直接写入】更新或新增到 tracks 表
-    if (track_id) {
-      // 补全现有歌曲的空缺字段
-      let updateCol = 'audio_url';
-      if (fileType === 'cover') updateCol = 'cover_url';
-      if (fileType === 'lyric') updateCol = 'lyric_url';
-      if (fileType === 'mv') updateCol = 'mv_url';
+    // 1. 若上传评论附件 -> 存储至 comment/ 目录
+    if (fileType === 'comment_attachment' && fileBase64 && fileName) {
+      const folder = 'comment';
+      const cleanFileName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '')}`;
+      const targetUrl = await uploadToGitHub(folder, cleanFileName, fileBase64);
 
-      const finalVal = fileType === 'mv' ? mv_url : targetUrl;
+      return new Response(
+        JSON.stringify({ success: true, url: targetUrl }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
+    // 2. 音乐/歌词/封面推送至 GitHub 资产库
+    let targetUrl = '';
+    if (fileBase64 && fileName) {
+      let folder = 'music';
+      if (fileType === 'lyric') folder = 'lyrics';
+      if (fileType === 'cover') folder = 'covers';
+
+      const cleanFileName = `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9._-]/g, '')}`;
+      targetUrl = await uploadToGitHub(folder, cleanFileName, fileBase64);
+    }
+
+    // 3. 拦截判断：如果是修正模式或信息冲突，写入 pending_songs 审核暂存表
+    if (mode === 'modify' || !targetSongId) {
       await db
         .prepare(
-          `UPDATE tracks SET ${updateCol} = ?, contributor = COALESCE(NULLIF(contributor, ''), ?) WHERE id = ?`
-        )
-        .bind(finalVal, contributor_email, track_id)
-        .run();
-    } else {
-      // 新增全新歌曲记录
-      await db
-        .prepare(
-          `INSERT INTO tracks (title, cover_url, artist, audio_url, lyric_url, mv_url, album_id, contributor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO pending_songs (title, cover_url, artist, audio_url, lrc_url, mv_url, album_id, contributor, submitter_email, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`
         )
         .bind(
-          title,
+          title || '未命名歌曲',
           fileType === 'cover' ? targetUrl : '',
           artist,
           fileType === 'audio' ? targetUrl : '',
           fileType === 'lyric' ? targetUrl : '',
-          fileType === 'mv' ? mv_url : '',
-          album_id || 1,
+          mv_url,
+          album_id || null,
+          contributor_email,
           contributor_email
         )
         .run();
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          isPending: true,
+          message: '提交已进入 pending_songs 暂存队列，等待管理员审核！',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
     }
+
+    // 4. 补充已有歌曲的空缺字段
+    let updateCol = 'audio_url';
+    if (fileType === 'cover') updateCol = 'cover_url';
+    if (fileType === 'lyric') updateCol = 'lrc_url';
+    if (fileType === 'mv') updateCol = 'mv_url';
+
+    const finalVal = fileType === 'mv' ? mv_url : targetUrl;
+
+    await db
+      .prepare(
+        `UPDATE songs SET ${updateCol} = ?, contributor = COALESCE(NULLIF(contributor, ''), ?) WHERE id = ?`
+      )
+      .bind(finalVal, contributor_email, targetSongId)
+      .run();
 
     return new Response(
       JSON.stringify({

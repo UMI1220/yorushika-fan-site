@@ -2,7 +2,7 @@ export const runtime = 'edge';
 
 export default async function handler(req) {
   const { searchParams } = new URL(req.url);
-  const track_id = searchParams.get('track_id');
+  const song_id = searchParams.get('song_id') || searchParams.get('track_id');
   const comment_id = searchParams.get('comment_id');
 
   const db = process.env.DB;
@@ -31,93 +31,117 @@ export default async function handler(req) {
         );
       }
 
-      if (!track_id) {
+      if (!song_id) {
         return new Response(
-          JSON.stringify({ success: false, message: '请提供 track_id' }),
+          JSON.stringify({ success: false, message: '请提供 song_id' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
       // 拉取歌曲下的所有评论
       const { results: comments } = await db
-        .prepare('SELECT * FROM comments WHERE track_id = ? ORDER BY id DESC')
-        .bind(track_id)
+        .prepare('SELECT * FROM comments WHERE song_id = ? ORDER BY id DESC')
+        .bind(song_id)
         .all();
 
+      // 附加回复数量和第一条回复，优化轻量磁贴拉取
+      const fullComments = await Promise.all(
+        (comments || []).map(async (c) => {
+          const replyCount = await db
+            .prepare('SELECT COUNT(*) as count FROM replies WHERE comment_id = ?')
+            .bind(c.id)
+            .first();
+          return { ...c, reply_count: replyCount?.count || 0 };
+        })
+      );
+
       return new Response(
-        JSON.stringify({ success: true, data: comments || [] }),
+        JSON.stringify({ success: true, data: fullComments }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 2. 发表评论或回复
+    // 2. 发表评论 或 发表回复
     if (req.method === 'POST') {
       const body = await req.json();
-      const {
-        isReply = false,
-        comment_id: targetCommentId,
-        track_id: targetTrackId,
-        nickname,
-        content,
-        delete_password = '',
-        attachment_url = '',
-      } = body;
 
-      if (!nickname || !content) {
-        return new Response(
-          JSON.stringify({ success: false, message: '昵称与文本不能为空' }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
+      // 回复逻辑
+      if (body.comment_id) {
+        const { comment_id, nickname, content, password = '', attachment_url = '' } = body;
+        if (!nickname || !content) {
+          return new Response(
+            JSON.stringify({ success: false, message: '昵称与内容不能为空' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
 
-      // 发表回复
-      if (isReply && targetCommentId) {
-        await db
+        const res = await db
           .prepare(
-            `INSERT INTO replies (nickname, content, delete_password, comment_id, attachment_url)
+            `INSERT INTO replies (comment_id, nickname, content, password, attachment_url)
              VALUES (?, ?, ?, ?, ?)`
           )
-          .bind(nickname, content, delete_password, targetCommentId, attachment_url)
+          .bind(comment_id, nickname, content, password, attachment_url)
           .run();
 
         return new Response(
-          JSON.stringify({ success: true, message: '回复成功' }),
+          JSON.stringify({
+            success: true,
+            message: '回复成功',
+            reply_id: res.meta?.last_row_id,
+          }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
-      // 发表主评论
-      await db
+      // 评论逻辑
+      const { song_id: postSongId, nickname, content, password = '', attachment_url = '' } = body;
+      const targetSongId = postSongId || body.track_id;
+
+      if (!targetSongId || !nickname || !content) {
+        return new Response(
+          JSON.stringify({ success: false, message: 'song_id、昵称与内容不能为空' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const res = await db
         .prepare(
-          `INSERT INTO comments (nickname, content, delete_password, track_id, attachment_url)
+          `INSERT INTO comments (song_id, nickname, content, password, attachment_url)
            VALUES (?, ?, ?, ?, ?)`
         )
-        .bind(nickname, content, delete_password, targetTrackId, attachment_url)
+        .bind(targetSongId, nickname, content, password, attachment_url)
         .run();
 
       return new Response(
-        JSON.stringify({ success: true, message: '评论发布成功' }),
+        JSON.stringify({
+          success: true,
+          message: '评论发表成功',
+          comment_id: res.meta?.last_row_id,
+        }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 3. 删除评论/回复 (支持设置的密码 或 管理员密码 UMI1220)
+    // 3. 删除评论或回复 (需校验删除密码或管理员密码)
     if (req.method === 'DELETE') {
       const body = await req.json();
       const { id, type = 'comment', password } = body;
+      const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'yorushika2026';
 
-      const ADMIN_PASSWORD = 'UMI1220';
+      if (!id || !password) {
+        return new Response(
+          JSON.stringify({ success: false, message: '缺少必须参数' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
 
       if (type === 'reply') {
         const reply = await db
-          .prepare('SELECT delete_password FROM replies WHERE id = ?')
+          .prepare('SELECT password FROM replies WHERE id = ?')
           .bind(id)
           .first();
 
-        if (
-          password === ADMIN_PASSWORD ||
-          (reply && reply.delete_password && reply.delete_password === password)
-        ) {
+        if (password === ADMIN_PASSWORD || (reply && reply.password && reply.password === password)) {
           await db.prepare('DELETE FROM replies WHERE id = ?').bind(id).run();
           return new Response(
             JSON.stringify({ success: true, message: '回复已成功删除' }),
@@ -126,15 +150,11 @@ export default async function handler(req) {
         }
       } else {
         const comment = await db
-          .prepare('SELECT delete_password FROM comments WHERE id = ?')
+          .prepare('SELECT password FROM comments WHERE id = ?')
           .bind(id)
           .first();
 
-        if (
-          password === ADMIN_PASSWORD ||
-          (comment && comment.delete_password && comment.delete_password === password)
-        ) {
-          // 删除该评论及其关联回复
+        if (password === ADMIN_PASSWORD || (comment && comment.password && comment.password === password)) {
           await db.prepare('DELETE FROM replies WHERE comment_id = ?').bind(id).run();
           await db.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
 

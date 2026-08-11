@@ -4,10 +4,10 @@ export default async function handler(req) {
   const db = process.env.DB;
 
   try {
-    // 1. 获取 pending_tracks 审核队列
+    // 1. 获取 pending_songs 审核队列
     if (req.method === 'GET') {
       const { results } = await db
-        .prepare('SELECT * FROM pending_tracks ORDER BY id DESC')
+        .prepare('SELECT * FROM pending_songs ORDER BY id DESC')
         .all();
 
       return new Response(
@@ -19,10 +19,11 @@ export default async function handler(req) {
     // 2. 审核通过 (APPROVE)
     if (req.method === 'POST') {
       const body = await req.json();
-      const { pending_id, target_track_id, is_track_list = false } = body;
+      const { pending_id, target_song_id, is_song_list = false } = body;
+      const targetId = target_song_id || body.target_track_id;
 
       const pending = await db
-        .prepare('SELECT * FROM pending_tracks WHERE id = ?')
+        .prepare('SELECT * FROM pending_songs WHERE id = ?')
         .bind(pending_id)
         .first();
 
@@ -34,59 +35,87 @@ export default async function handler(req) {
       }
 
       // 如果为歌曲列表追加
-      if (is_track_list && pending.album_id) {
+      if (is_song_list && pending.album_id) {
         const album = await db
-          .prepare('SELECT track_list FROM albums WHERE id = ?')
+          .prepare('SELECT song_list FROM albums WHERE id = ?')
           .bind(pending.album_id)
           .first();
 
-        const oldList = album?.track_list ? album.track_list + '\n' : '';
-        const newList = oldList + pending.title;
+        let currentList = [];
+        try {
+          currentList = album?.song_list ? JSON.parse(album.song_list) : [];
+        } catch (e) {
+          currentList = [];
+        }
 
+        if (!currentList.includes(pending.title)) {
+          currentList.push(pending.title);
+          await db
+            .prepare('UPDATE albums SET song_list = ? WHERE id = ?')
+            .bind(JSON.stringify(currentList), pending.album_id)
+            .run();
+        }
+      }
+
+      // 若未指定目标歌曲 ID，说明为全新歌曲 -> 写入 songs 表
+      if (!targetId) {
         await db
           .prepare(
-            `UPDATE albums SET track_list = ?, extra_contributors = COALESCE(extra_contributors || ', ', '') || ? WHERE id = ?`
+            `INSERT INTO songs (title, cover_url, artist, audio_url, lrc_url, mv_url, album_id, contributor)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .bind(newList, pending.contributor, pending.album_id)
+          .bind(
+            pending.title,
+            pending.cover_url,
+            pending.artist || 'ヨルシカ',
+            pending.audio_url,
+            pending.lrc_url,
+            pending.mv_url,
+            pending.album_id,
+            pending.contributor
+          )
           .run();
-      } else if (target_track_id) {
-        // 覆盖特定字段 & 自动将提交者邮箱追加填入 extra_contributors
-        const existingTrack = await db
-          .prepare('SELECT * FROM tracks WHERE id = ?')
-          .bind(target_track_id)
+      } else {
+        // 合并覆盖更新已有歌曲
+        const exist = await db
+          .prepare('SELECT * FROM songs WHERE id = ?')
+          .bind(targetId)
           .first();
 
-        if (existingTrack) {
-          const audio_url = pending.audio_url || existingTrack.audio_url;
-          const cover_url = pending.cover_url || existingTrack.cover_url;
-          const lyric_url = pending.lyric_url || existingTrack.lyric_url;
-          const mv_url = pending.mv_url || existingTrack.mv_url;
+        if (exist) {
+          const audio_url = pending.audio_url || exist.audio_url;
+          const cover_url = pending.cover_url || exist.cover_url;
+          const lrc_url = pending.lrc_url || exist.lrc_url;
+          const mv_url = pending.mv_url || exist.mv_url;
 
           await db
             .prepare(
-              `UPDATE tracks 
-               SET audio_url = ?, cover_url = ?, lyric_url = ?, mv_url = ?,
-                   extra_contributors = CASE 
-                     WHEN extra_contributors IS NULL OR extra_contributors = '' THEN ?
-                     ELSE extra_contributors || ', ' || ?
-                   END
+              `UPDATE songs SET 
+                 audio_url = ?, 
+                 cover_url = ?, 
+                 lrc_url = ?, 
+                 mv_url = ?, 
+                 extra_contributors = CASE 
+                   WHEN extra_contributors IS NULL OR extra_contributors = '' THEN ?
+                   ELSE extra_contributors || ', ' || ?
+                 END
                WHERE id = ?`
             )
             .bind(
               audio_url,
               cover_url,
-              lyric_url,
+              lrc_url,
               mv_url,
               pending.contributor,
               pending.contributor,
-              target_track_id
+              targetId
             )
             .run();
         }
       }
 
-      // 审核通过后删除 pending 记录
-      await db.prepare('DELETE FROM pending_tracks WHERE id = ?').bind(pending_id).run();
+      // 审核通过后删除 pending_songs 记录
+      await db.prepare('DELETE FROM pending_songs WHERE id = ?').bind(pending_id).run();
 
       return new Response(
         JSON.stringify({ success: true, message: '审核已通过，数据与贡献者已追加更新！' }),
@@ -100,7 +129,7 @@ export default async function handler(req) {
       const pending_id = searchParams.get('pending_id');
 
       if (pending_id) {
-        await db.prepare('DELETE FROM pending_tracks WHERE id = ?').bind(pending_id).run();
+        await db.prepare('DELETE FROM pending_songs WHERE id = ?').bind(pending_id).run();
         return new Response(
           JSON.stringify({ success: true, message: '已拒绝并移除该审核项' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
