@@ -7,7 +7,31 @@ import { useRouter } from 'next/router';
 // -----------------------------------------------------------------------------
 const AudioContext = createContext();
 
-export const useAudio = () => useContext(AudioContext);
+export const useAudio = () => {
+  const context = useContext(AudioContext);
+  // SSR 预渲染防崩容错保护
+  if (!context) {
+    return {
+      theme: 'natsukage',
+      themeColor: '#88abac',
+      isPlaying: false,
+      currentTrack: null,
+      currentAlbum: null,
+      playlist: [],
+      currentIndex: 0,
+      progress: 0,
+      duration: 0,
+      currentTime: 0,
+      setTheme: () => {},
+      setThemeColor: () => {},
+      playTrack: () => {},
+      togglePlay: () => {},
+      playNext: () => {},
+      playPrev: () => {},
+    };
+  }
+  return context;
+};
 
 export function AudioProvider({ children }) {
   const router = useRouter();
