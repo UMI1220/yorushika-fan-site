@@ -7,5 +7,5 @@ ENVIRONMENT = "production"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "twikoo"
-database_id = "163732de-b424-462c-836f-17a00e020b5e"
+database_name = "yorushika-fan-site"
+database_id = "f9e6f3b6-6984-40cf-afb9-2df7c184437a"
