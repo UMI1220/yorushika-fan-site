@@ -5,11 +5,19 @@ export default async function handler(req) {
   const id = searchParams.get('id');
   const album_id = searchParams.get('album_id');
 
-  const db = process.env.DB;
+  // 1. 修复：兼容获取 D1 绑定
+  const db = req.env?.DB || process.env.DB || globalThis.DB;
+
+  if (!db) {
+    return new Response(
+      JSON.stringify({ success: false, message: 'D1 数据库绑定 [DB] 未找到，请检查配置' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
     if (req.method === 'GET') {
-      // 1. 获取指定歌曲详情
+      // 2. 获取指定歌曲详情
       if (id) {
         const song = await db
           .prepare('SELECT * FROM songs WHERE id = ?')
@@ -38,7 +46,7 @@ export default async function handler(req) {
         );
       }
 
-      // 2. 按专辑 ID 批量拉取歌曲
+      // 3. 按专辑 ID 批量拉取歌曲
       if (album_id) {
         const { results } = await db
           .prepare('SELECT * FROM songs WHERE album_id = ? ORDER BY id ASC')
@@ -51,9 +59,14 @@ export default async function handler(req) {
         );
       }
 
+      // 4. 兜底：无参数时返回所有歌曲
+      const { results } = await db
+        .prepare('SELECT * FROM songs ORDER BY id ASC')
+        .all();
+
       return new Response(
-        JSON.stringify({ success: false, message: '请提供歌曲 id 或 album_id' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: true, data: results || [] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -63,7 +76,7 @@ export default async function handler(req) {
     );
   } catch (error) {
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, message: error.message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

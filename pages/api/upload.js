@@ -41,7 +41,7 @@ export default async function handler(req) {
     );
   }
 
-  const db = process.env.DB;
+  const db = req.env?.DB || process.env.DB || globalThis.DB;
 
   try {
     const body = await req.json();

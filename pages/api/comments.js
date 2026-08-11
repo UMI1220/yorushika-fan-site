@@ -5,17 +5,35 @@ export default async function handler(req) {
   const song_id = searchParams.get('song_id') || searchParams.get('track_id');
   const comment_id = searchParams.get('comment_id');
 
-  const db = process.env.DB;
+  // 1. 兼容获取 D1 数据库绑定
+  const db = req.env?.DB || process.env.DB || globalThis.DB;
+  const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (!db) {
+    return new Response(
+      JSON.stringify({ success: false, message: 'D1 数据库绑定 [DB] 未找到，请检查环境配置' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
 
   try {
-    // 1. 拉取评论列表与回复列表
+    // -------------------------------------------------------------------------
+    // GET: 拉取评论与回复列表
+    // -------------------------------------------------------------------------
     if (req.method === 'GET') {
+      // 1.1 拉取单条评论详情及嵌套的所有回复
       if (comment_id) {
-        // 单个评论的完整内容与嵌套回复
         const comment = await db
           .prepare('SELECT * FROM comments WHERE id = ?')
           .bind(comment_id)
           .first();
+
+        if (!comment) {
+          return new Response(
+            JSON.stringify({ success: false, message: '评论不存在' }),
+            { status: 404, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
 
         const { results: replies } = await db
           .prepare('SELECT * FROM replies WHERE comment_id = ? ORDER BY id ASC')
@@ -31,75 +49,85 @@ export default async function handler(req) {
         );
       }
 
+      // 1.2 要求必须包含 song_id
       if (!song_id) {
         return new Response(
-          JSON.stringify({ success: false, message: '请提供 song_id' }),
+          JSON.stringify({ success: false, message: '请提供 song_id 或 track_id' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
-      // 拉取歌曲下的所有评论
+      // 1.3 查询该歌曲下的所有主评论及其子回复
       const { results: comments } = await db
         .prepare('SELECT * FROM comments WHERE song_id = ? ORDER BY id DESC')
         .bind(song_id)
         .all();
 
-      // 附加回复数量和第一条回复，优化轻量磁贴拉取
-      const fullComments = await Promise.all(
-        (comments || []).map(async (c) => {
-          const replyCount = await db
-            .prepare('SELECT COUNT(*) as count FROM replies WHERE comment_id = ?')
-            .bind(c.id)
-            .first();
-          return { ...c, reply_count: replyCount?.count || 0 };
+      const commentsWithReplies = await Promise.all(
+        (comments || []).map(async (comment) => {
+          const { results: replies } = await db
+            .prepare('SELECT * FROM replies WHERE comment_id = ? ORDER BY id ASC')
+            .bind(comment.id)
+            .all();
+          return { ...comment, replies: replies || [] };
         })
       );
 
       return new Response(
-        JSON.stringify({ success: true, data: fullComments }),
+        JSON.stringify({ success: true, data: commentsWithReplies }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 2. 发表评论 或 发表回复
+    // -------------------------------------------------------------------------
+    // POST: 发布评论或回复
+    // -------------------------------------------------------------------------
     if (req.method === 'POST') {
       const body = await req.json();
+      const {
+        song_id: bodySongId,
+        track_id: bodyTrackId,
+        comment_id: bodyCommentId,
+        nickname = '匿名君',
+        content,
+        password = '',
+        attachment_url = '',
+      } = body;
 
-      // 回复逻辑
-      if (body.comment_id) {
-        const { comment_id, nickname, content, password = '', attachment_url = '' } = body;
-        if (!nickname || !content) {
-          return new Response(
-            JSON.stringify({ success: false, message: '昵称与内容不能为空' }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-          );
-        }
+      const targetSongId = bodySongId || bodyTrackId || song_id;
+      const targetCommentId = bodyCommentId || comment_id;
 
+      if (!content || !content.trim()) {
+        return new Response(
+          JSON.stringify({ success: false, message: '评论内容不能为空' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // 如果提供了 comment_id，视为“对评论的回复” -> 插入 replies 表
+      if (targetCommentId) {
         const res = await db
           .prepare(
             `INSERT INTO replies (comment_id, nickname, content, password, attachment_url)
              VALUES (?, ?, ?, ?, ?)`
           )
-          .bind(comment_id, nickname, content, password, attachment_url)
+          .bind(targetCommentId, nickname.trim(), content.trim(), password.trim(), attachment_url.trim())
           .run();
 
         return new Response(
           JSON.stringify({
             success: true,
-            message: '回复成功',
+            message: '回复成功！',
             reply_id: res.meta?.last_row_id,
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
-      // 评论逻辑
-      const { song_id: postSongId, nickname, content, password = '', attachment_url = '' } = body;
-      const targetSongId = postSongId || body.track_id;
-
-      if (!targetSongId || !nickname || !content) {
+      // 否则为“针对歌曲的评论” -> 插入 comments 表
+      if (!targetSongId) {
         return new Response(
-          JSON.stringify({ success: false, message: 'song_id、昵称与内容不能为空' }),
+          JSON.stringify({ success: false, message: '缺少对应的 song_id，无法发表评论' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
@@ -109,33 +137,37 @@ export default async function handler(req) {
           `INSERT INTO comments (song_id, nickname, content, password, attachment_url)
            VALUES (?, ?, ?, ?, ?)`
         )
-        .bind(targetSongId, nickname, content, password, attachment_url)
+        .bind(targetSongId, nickname.trim(), content.trim(), password.trim(), attachment_url.trim())
         .run();
 
       return new Response(
         JSON.stringify({
           success: true,
-          message: '评论发表成功',
+          message: '评论发表成功！',
           comment_id: res.meta?.last_row_id,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
-    // 3. 删除评论或回复 (需校验删除密码或管理员密码)
+    // -------------------------------------------------------------------------
+    // DELETE: 删除评论或回复
+    // -------------------------------------------------------------------------
     if (req.method === 'DELETE') {
-      const body = await req.json();
-      const { id, type = 'comment', password } = body;
-      const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'yorushika2026';
+      const body = await req.json().catch(() => ({}));
+      const id = body.id || searchParams.get('id');
+      const is_reply = body.is_reply || searchParams.get('is_reply') === 'true';
+      const password = body.password || searchParams.get('password') || '';
 
-      if (!id || !password) {
+      if (!id) {
         return new Response(
-          JSON.stringify({ success: false, message: '缺少必须参数' }),
+          JSON.stringify({ success: false, message: '缺少要删除的评论 ID' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
 
-      if (type === 'reply') {
+      // 删除子回复
+      if (is_reply) {
         const reply = await db
           .prepare('SELECT password FROM replies WHERE id = ?')
           .bind(id)
@@ -149,6 +181,7 @@ export default async function handler(req) {
           );
         }
       } else {
+        // 删除主评论（连同关联回复一起删掉）
         const comment = await db
           .prepare('SELECT password FROM comments WHERE id = ?')
           .bind(id)
@@ -159,14 +192,14 @@ export default async function handler(req) {
           await db.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
 
           return new Response(
-            JSON.stringify({ success: true, message: '评论及其回复已成功删除' }),
+            JSON.stringify({ success: true, message: '评论及其所有回复已成功删除' }),
             { status: 200, headers: { 'Content-Type': 'application/json' } }
           );
         }
       }
 
       return new Response(
-        JSON.stringify({ success: false, message: '密码错误，无权删除' }),
+        JSON.stringify({ success: false, message: '密码校验错误，无权删除该评论' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } }
       );
     }
@@ -177,7 +210,7 @@ export default async function handler(req) {
     );
   } catch (error) {
     return new Response(
-      JSON.stringify({ success: false, error: error.message }),
+      JSON.stringify({ success: false, message: error.message }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
     );
   }

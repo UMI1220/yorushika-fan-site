@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 
 export default async function handler(req) {
-  const db = process.env.DB;
+  const db = req.env?.DB || process.env.DB || globalThis.DB;
 
   try {
     // 1. 获取 pending_songs 审核队列
