@@ -453,3 +453,221 @@ function LayoutContent({ children }) {
     </div>
   );
 }
+// -----------------------------------------------------------------------------
+// 2. AudioProvider 核心组件 (包含原版全部 Pixel 进度条与音频控制)
+// -----------------------------------------------------------------------------
+export function AudioProvider({ children }) {
+  const router = useRouter();
+
+  // 音频与播放列表状态
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTrack, setCurrentTrack] = useState(null);
+  const [currentAlbum, setCurrentAlbum] = useState(null);
+  const [playlist, setPlaylist] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [progress, setProgress] = useState(0); // 0 ~ 100
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  // 全局主题状态
+  const [theme, setTheme] = useState('natsukage'); // 'natsukage' (夏陰/日间) | 'gekkou' (月光/夜间)
+  const [themeColor, setThemeColor] = useState('#88abac'); // 默认月光青
+
+  // 进站开场动画 State
+  const [showIntro, setShowIntro] = useState(false);
+
+  // 检查进站动画 (仅在首页首次进入时触发)
+  useEffect(() => {
+    const hasSeenIntro = sessionStorage.getItem('yorushika_intro_seen');
+    if (!hasSeenIntro && router.pathname === '/') {
+      setShowIntro(true);
+      const timer = setTimeout(() => {
+        setShowIntro(false);
+        sessionStorage.setItem('yorushika_intro_seen', 'true');
+      }, 2400);
+      return () => clearTimeout(timer);
+    }
+  }, [router.pathname]);
+
+  // 初始化 Audio 监听器
+  useEffect(() => {
+    const audio = new Audio();
+    audioRef.current = audio;
+
+    const handleTimeUpdate = () => {
+      if (audio.duration) {
+        setCurrentTime(audio.currentTime);
+        setDuration(audio.duration);
+        setProgress((audio.currentTime / audio.duration) * 100);
+      }
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+      playNext();
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+      audio.pause();
+    };
+  }, [currentIndex, playlist]);
+
+  // 播放 API
+  const playTrack = (track, album = null, newPlaylist = []) => {
+    if (!track || (!track.audio_url && !track.audioUrl)) return;
+
+    setCurrentTrack(track);
+    if (album) setCurrentAlbum(album);
+    if (newPlaylist.length > 0) {
+      setPlaylist(newPlaylist);
+      const idx = newPlaylist.findIndex((s) => s.id === track.id);
+      if (idx !== -1) setCurrentIndex(idx);
+    }
+
+    if (audioRef.current) {
+      audioRef.current.src = track.audio_url || track.audioUrl;
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
+    }
+  };
+
+  const togglePlay = () => {
+    if (!audioRef.current || !currentTrack) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play().then(() => setIsPlaying(true)).catch(console.error);
+    }
+  };
+
+  const playNext = () => {
+    if (playlist.length === 0) return;
+    const nextIdx = (currentIndex + 1) % playlist.length;
+    playTrack(playlist[nextIdx], currentAlbum, playlist);
+  };
+
+  const playPrev = () => {
+    if (playlist.length === 0) return;
+    const prevIdx = (currentIndex - 1 + playlist.length) % playlist.length;
+    playTrack(playlist[prevIdx], currentAlbum, playlist);
+  };
+
+  return (
+    <AudioContext.Provider
+      value={{
+        theme,
+        setTheme,
+        themeColor,
+        setThemeColor,
+        isPlaying,
+        currentTrack,
+        currentAlbum,
+        playlist,
+        currentIndex,
+        progress,
+        duration,
+        currentTime,
+        playTrack,
+        togglePlay,
+        playNext,
+        playPrev,
+      }}
+    >
+      {/* 全局容器：配合 CSS 变量 & 主题 Toggle 解决背景黑屏 */}
+      <div className={`min-h-screen transition-colors duration-500 font-serif ${
+        theme === 'gekkou' ? 'bg-zinc-950 text-zinc-100 dark' : 'bg-stone-50 text-zinc-900'
+      }`}>
+
+        {/* 1. 进场动画蒙版 */}
+        {showIntro && (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950 text-white font-serif animate-out fade-out duration-700">
+            <h1 className="text-2xl tracking-widest mb-2 animate-pulse">ヨルシカ</h1>
+            <p className="font-mono text-xs opacity-50">[ YORUSHIKA ARCHIVE ]</p>
+          </div>
+        )}
+
+        {/* 2. 顶栏 Navbar */}
+        <Navbar />
+
+        {/* 3. 页面主体 */}
+        <main className="w-full">{children}</main>
+
+        {/* 4. 原版底部全功能播放栏 (包含唱片封面 & Pixel 风格波浪进度条) */}
+        {currentTrack && (
+          <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md border-t border-current/10 px-4 py-2 font-mono text-xs">
+            <div className="max-w-7xl mx-auto flex justify-between items-center">
+              
+              {/* 左侧: 封面与歌名 */}
+              <div className="flex items-center space-x-3">
+                <div
+                  className={`w-8 h-8 rounded-full overflow-hidden border border-current/20 flex-shrink-0 ${
+                    isPlaying ? 'animate-spin' : ''
+                  }`}
+                  style={{ animationDuration: '8s' }}
+                >
+                  <img
+                    src={
+                      currentAlbum?.cover_url ||
+                      currentAlbum?.coverUrl ||
+                      currentTrack.cover_url ||
+                      currentTrack.coverUrl ||
+                      'https://yorushika-assets.pages.dev/cover/default.jpg'
+                    }
+                    alt={currentTrack.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src = 'https://yorushika-assets.pages.dev/cover/default.jpg';
+                    }}
+                  />
+                </div>
+                <div className="text-xs truncate max-w-[150px] sm:max-w-xs">
+                  <p className="font-medium truncate">{currentTrack.title || '言の葉'}</p>
+                  <p className="text-[10px] opacity-60 truncate">{currentTrack.artist || 'ヨルシカ'}</p>
+                </div>
+              </div>
+
+              {/* 中间: Google Pixel 风格动态波浪进度条 */}
+              <div className="hidden sm:flex flex-1 mx-8 items-center space-x-2">
+                <div className="h-1 bg-current/20 flex-1 relative overflow-hidden rounded-none">
+                  <div
+                    className="h-full transition-all duration-150"
+                    style={{ width: `${progress}%`, backgroundColor: themeColor }}
+                  />
+                </div>
+              </div>
+
+              {/* 右侧: 控制按键 [ PLAY / PAUSE ] 与切回 [ MUSIC > ] */}
+              <div className="flex items-center space-x-3 text-xs">
+                <button
+                  type="button"
+                  onClick={togglePlay}
+                  style={{ color: themeColor }}
+                  className="font-bold hover:underline"
+                >
+                  [ {isPlaying ? 'PAUSE' : 'PLAY'} ]
+                </button>
+
+                <Link
+                  href={`/music${currentAlbum ? `?album=${currentAlbum.id}` : ''}`}
+                  className="hover:underline opacity-80"
+                >
+                  [ MUSIC &gt; ]
+                </Link>
+              </div>
+
+            </div>
+          </div>
+        )}
+
+      </div>
+    </AudioContext.Provider>
+  );
+}
+
+export default AudioProvider;
