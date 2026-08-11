@@ -1,6 +1,7 @@
 import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import IntroOverlay from './IntroOverlay';
 
 // -----------------------------------------------------------------------------
 // 1. 全局 Audio & UI 核心上下文 (Global Audio & Layout Context)
