@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout, { useAudio } from '../components/Layout';
 
-export default function MusicPage() {
+export function MusicPage() {
   const router = useRouter();
   const { album: queryAlbumId } = router.query;
 
