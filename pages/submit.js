@@ -111,7 +111,7 @@ export default function SubmitPage() {
     }
   };
 
-  // ------------------- 2. 二次补进拦截拦截机制 -------------------
+  // ------------------- 2. 二次补进拦截机制 -------------------
   const checkSongDuplication = async (songId) => {
     setDuplicateWarning(false);
     if (!songId || submitMode !== 'supplement') return;
@@ -141,7 +141,6 @@ export default function SubmitPage() {
     updated[index][field] = value;
     setNewAlbumSongs(updated);
   };
-
   // ------------------- 4. 表单提交逻辑 -------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -194,6 +193,7 @@ export default function SubmitPage() {
       if (json.success) {
         setAlertMessage('「 提交成功！已暂存至审核表，感谢您对ヨルシカ档案馆的贡献。」');
         // 重置部分表单
+        setCoverUrl('');
         setAudioUrl('');
         setMvUrl('');
         setLyricContent('');
@@ -288,7 +288,6 @@ export default function SubmitPage() {
             </div>
           </div>
         </div>
-
         {/* ------------------- 补充模式特有分类 ------------------- */}
         {submitMode === 'supplement' && (
           <div className="space-y-6">
@@ -365,15 +364,28 @@ export default function SubmitPage() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-[10px] opacity-60 mb-1">AUDIO URL / 音源链接 (.mp3)</label>
-                  <input
-                    type="url"
-                    placeholder="https://yorushika-assets.pages.dev/music/..."
-                    value={audioUrl}
-                    onChange={(e) => setAudioUrl(e.target.value)}
-                    className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] opacity-60 mb-1">COVER URL / 封面图片链接</label>
+                    <input
+                      type="url"
+                      placeholder="https://yorushika-assets.pages.dev/cover/..."
+                      value={coverUrl}
+                      onChange={(e) => setCoverUrl(e.target.value)}
+                      className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] opacity-60 mb-1">AUDIO URL / 音源链接 (.mp3)</label>
+                    <input
+                      type="url"
+                      placeholder="https://yorushika-assets.pages.dev/music/..."
+                      value={audioUrl}
+                      onChange={(e) => setAudioUrl(e.target.value)}
+                      className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -425,6 +437,17 @@ export default function SubmitPage() {
                       className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] opacity-60 mb-1">COVER URL / 专辑封面链接</label>
+                  <input
+                    type="url"
+                    placeholder="https://yorushika-assets.pages.dev/cover/..."
+                    value={coverUrl}
+                    onChange={(e) => setCoverUrl(e.target.value)}
+                    className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
+                  />
                 </div>
 
                 <div>
@@ -496,3 +519,56 @@ export default function SubmitPage() {
                   {albums.map((a) => (
                     <option key={a.id} value={a.id} className="bg-zinc-900 text-white">
                       {a.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] opacity-60 mb-1">SELECT SONG / 选择修改歌曲 (可选)</label>
+                <select
+                  value={selectedSongId}
+                  onChange={(e) => setSelectedSongId(e.target.value)}
+                  className="w-full bg-transparent border border-current/20 p-2 focus:outline-none focus:border-current"
+                >
+                  <option value="" className="bg-zinc-900 text-white">-- 修改整张专辑 / 或选择具体曲目 --</option>
+                  {songs.map((s) => (
+                    <option key={s.id} value={s.id} className="bg-zinc-900 text-white">
+                      {s.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="block text-[10px] opacity-60 mb-1">MODIFICATION DETAILS / 详细修正说明 *</label>
+                <textarea
+                  rows={4}
+                  required
+                  placeholder="请详细描述需要修正的错误信息或更新数据..."
+                  value={modifyReason}
+                  onChange={(e) => setModifyReason(e.target.value)}
+                  className="w-full bg-transparent border border-current/20 p-2 focus:outline-none text-xs leading-relaxed font-serif"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------- 统一全局提交按钮区域 ------------------- */}
+        <div className="pt-4 border-t border-current/10 font-mono text-xs">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-3 font-bold transition-all disabled:opacity-50"
+            style={{ backgroundColor: themeColor, color: '#09090b' }}
+          >
+            {submitting ? '[ SUBMITTING TO ARCHIVE... / 正在提交... ]' : '[ SUBMIT ARCHIVE DATA / 提交归档数据 ]'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

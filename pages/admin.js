@@ -453,4 +453,75 @@ export default function AdminPage() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="opacity-60 hover:opacity-100"
+                      >
+                        [ CANCEL ]
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirmId(c.id)}
+                      className="text-red-500 hover:underline text-[10px]"
+                    >
+                      [ DELETE ]
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ------------------- Tab 03. 系统与 CDN 状态 ------------------- */}
+      {activeTab === 'system' && (
+        <div className="space-y-6 font-mono text-xs">
+          <div className="font-bold tracking-wider border-b border-current/10 pb-2 flex justify-between items-center">
+            <span>[ SYSTEM & CLOUDFLARE INFRASTRUCTURE / 系统与 CDN 状态 ]</span>
+            <span className="text-[10px] opacity-60">EDGE_RUNTIME: OK</span>
+          </div>
+
+          <div
+            style={dynamicShadow}
+            className="bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md p-6 border border-current/10 space-y-4 rounded-none transition-all duration-300"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <span className="opacity-60 block text-[10px]">DATABASE BINDING</span>
+                <span className="font-bold text-emerald-400">env.DB (Cloudflare D1 SQLite)</span>
+              </div>
+              <div>
+                <span className="opacity-60 block text-[10px]">FRAMEWORK & RUNTIME</span>
+                <span className="font-bold">Next.js Edge Pages / Worker</span>
+              </div>
+              <div>
+                <span className="opacity-60 block text-[10px]">TOTAL ALBUMS LOADED</span>
+                <span className="font-bold">{albumsList ? albumsList.length : 0} ALBUMS</span>
+              </div>
+              <div>
+                <span className="opacity-60 block text-[10px]">TOTAL COMMENTS / THREADS</span>
+                <span className="font-bold">{commentsList ? commentsList.length : 0} THREADS</span>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-current/10 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-[10px] opacity-70">
+                DEFAULT CONTRIBUTOR SIGNATURE: <strong className="font-bold">UMI1220</strong>
+              </span>
+              <button
+                type="button"
+                onClick={fetchAdminData}
+                className="px-4 py-2 bg-emerald-500 text-zinc-950 font-bold hover:bg-emerald-400 transition-colors"
+              >
+                [ FORCE REFRESH SYSTEM CACHE / 刷新数据缓存 ]
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
           

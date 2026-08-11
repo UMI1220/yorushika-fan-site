@@ -66,6 +66,13 @@ function parseLRC(lrcText, contributor, email) {
 
   return parsed;
 }
+// 补充 formatTime 函数
+function formatTime(seconds) {
+  if (!seconds || isNaN(seconds)) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 
 // -----------------------------------------------------------------------------
 // 核心页面组件: MusicPage
@@ -551,5 +558,466 @@ export default function MusicPage() {
 
                               <div className="flex items-center space-x-2 text-[10px]">
                                 {hasAudio ? (
-                                  <button
+                                  <button                                    type="button"
+                                    onClick={() => handleSongClick(song)}
+                                    className="font-mono hover:underline font-bold"
+                                    style={{ color: themeColor }}
+                                  >
+                                    [ PLAY ]
+                                  </button>
+                                ) : (
+                                  <span className="opacity-30 font-mono text-[10px]">[ NO AUDIO ]</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* =================================================================== */}
+        {/* 中栏 (02. PLAYER & LYRICS): 播放器核心、封面切换、波浪进度条与控制链  */}
+        {/* =================================================================== */}
+        <div className={`space-y-6 ${activeTab === 'player' || 'hidden lg:block'}`}>
+          <div className="font-mono text-xs font-bold tracking-widest border-b border-current/10 pb-2 flex justify-between items-center">
+            <span>02. PLAYER & LYRICS</span>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowCoverModeMenu(!showCoverModeMenu)}
+                className="hover:underline opacity-80 text-[10px]"
+              >
+                [ VIEW: {coverMode.toUpperCase()} ]
+              </button>
+              {showCoverModeMenu && (
+                <div className="absolute right-0 mt-1 bg-white/95 dark:bg-zinc-900/95 border border-current/20 p-2 space-y-1 text-[10px] z-30 font-mono shadow-xl rounded-none">
+                  <button
+                    type="button"
+                    onClick={() => { setCoverMode('square'); setShowCoverModeMenu(false); }}
+                    className="block w-full text-left hover:underline"
+                  >
+                    [ SQUARE ALBUM ]
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCoverMode('disc'); setShowCoverModeMenu(false); }}
+                    className="block w-full text-left hover:underline"
+                  >
+                    [ STATIC DISC ]
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCoverMode('rotate'); setShowCoverModeMenu(false); }}
+                    className="block w-full text-left hover:underline"
+                  >
+                    [ ROTATING DISC ]
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div
+            style={dynamicShadow}
+            className="bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md p-6 border border-current/10 space-y-6 rounded-none transition-all duration-300"
+          >
+            {/* 1. 封面展示区 (3 模式) */}
+            <div className="flex justify-center items-center py-4">
+              <div
+                className={`relative overflow-hidden border border-current/10 transition-all duration-500 ${
+                  coverMode === 'square'
+                    ? 'w-64 h-64 rounded-none'
+                    : coverMode === 'disc'
+                    ? 'w-64 h-64 rounded-full'
+                    : `w-64 h-64 rounded-full ${isPlaying ? 'animate-spin' : ''}`
+                }`}
+                style={{ animationDuration: '20s' }}
+              >
+                <div
+                  className="w-full h-full bg-cover bg-center"
+                  style={{ backgroundImage: `url(${albumCover})` }}
+                />
+                {coverMode !== 'square' && (
+                  <div className="absolute inset-0 m-auto w-12 h-12 bg-zinc-950 rounded-full border-2 border-white/20 shadow-inner flex items-center justify-center">
+                    <div className="w-4 h-4 bg-zinc-900 rounded-full" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 2. 当前曲目信息与全屏沉浸入口 */}
+            <div className="text-center space-y-1">
+              <div className="flex justify-center items-center space-x-2">
+                <h2 className="text-lg font-bold font-serif">{currentTrack?.title || '未选择曲目'}</h2>
+                <button
+                  type="button"
+                  onClick={() => setIsImmersionMode(true)}
+                  className="text-[10px] font-mono hover:underline opacity-60"
+                >
+                  [ IMMERSION ]
+                </button>
+              </div>
+              <p className="text-xs font-mono opacity-60">
+                {currentAlbum?.title ? `${currentAlbum.title} · ` : ''}
+                {currentTrack?.artist || 'ヨルシカ'}
+              </p>
+            </div>
+
+            {/* 3. 内联歌词展示窗口 */}
+            <div
+              ref={lyricContainerRef}
+              className="h-32 overflow-y-auto space-y-3 text-center font-serif text-xs my-4 scroll-smooth no-scrollbar border-y border-current/10 py-3"
+            >
+              {lyrics.length > 0 ? (
+                lyrics.map((line, idx) => (
+                  <div
+                    key={idx}
+                    className={`transition-all duration-300 ${
+                      idx === currentLyricIndex ? 'font-bold opacity-100 text-sm' : 'opacity-40'
+                    }`}
+                    style={{ color: idx === currentLyricIndex ? themeColor : undefined }}
+                  >
+                    <p>{line.main}</p>
+                    {line.sub && <p className="text-[10px] font-normal opacity-70 mt-0.5">{line.sub}</p>}
+                  </div>
+                ))
+              ) : (
+                <div className="h-full flex items-center justify-center opacity-40 font-mono text-[11px]">
+                  [ NO LYRICS AVAILABLE / 暂无歌词 ]
+                </div>
+              )}
+            </div>
+
+            {/* 4. Pixel 动态波浪进度条 */}
+            <div className="space-y-1.5 font-mono text-[10px]">
+              <div className="relative w-full h-3 flex items-center cursor-pointer group">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={progress || 0}
+                  onChange={(e) => seek(parseFloat(e.target.value))}
+                  className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                />
+                <div className="w-full h-1 bg-current/10 relative overflow-hidden">
+                  <div
+                    className="h-full transition-all duration-100"
+                    style={{ width: `${progress}%`, backgroundColor: themeColor || '#88abac' }}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-between opacity-60">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(currentTrack?.duration || 0)}</span>
+              </div>
+            </div>
+
+            {/* 5. 纯文字 5 大播放控制链按钮 */}
+            <div className="flex justify-between items-center font-mono text-xs pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const modes = ['LOOP', 'RAND', 'SINGLE'];
+                  setPlayMode(modes[(modes.indexOf(playMode) + 1) % modes.length]);
+                }}
+                className="hover:underline opacity-80"
+              >
+                [ {playMode} ]
+              </button>
+              <button type="button" onClick={playPrev} className="hover:underline font-bold">
+                [ PREV ]
+              </button>
+              <button
+                type="button"
+                onClick={togglePlay}
+                className="px-4 py-1.5 font-bold hover:underline"
+                style={{ backgroundColor: themeColor, color: '#09090b' }}
+              >
+                {isPlaying ? '[ PAUSE ]' : '[ PLAY ]'}
+              </button>
+              <button type="button" onClick={playNext} className="hover:underline font-bold">
+                [ NEXT ]
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowListModal(true)}
+                className="hover:underline opacity-80"
+              >
+                [ LIST ]
+              </button>
+            </div>
+          </div>
+        </div>        {/* =================================================================== */}
+        {/* 右栏 (03. COMMENTS): 社区讨论磁贴、回复线程与凭密码删除交互       */}
+        {/* =================================================================== */}
+        <div className={`space-y-6 ${activeTab === 'comments' || 'hidden lg:block'}`}>
+          <div className="font-mono text-xs font-bold tracking-widest border-b border-current/10 pb-2 flex justify-between items-center">
+            <span>03. COMMENTS & DISCUSSIONS</span>
+            <span className="opacity-60 text-[10px]">{comments.length} THREADS</span>
+          </div>
+
+          <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
+            {comments.length > 0 ? (
+              comments.map((comment) => {
+                const isSelected = selectedComment?.id === comment.id;
+                return (
+                  <div key={comment.id} className="space-y-2">
+                    <div
+                      style={dynamicShadow}
+                      onClick={() => handleSelectCommentTile(comment)}
+                      className="bg-white/60 dark:bg-zinc-900/60 backdrop-blur-md p-4 border border-current/10 cursor-pointer hover:border-current/30 transition-all rounded-none space-y-2"
+                    >
+                      <div className="flex justify-between items-center font-mono text-[10px] opacity-70">
+                        <span className="font-bold">{comment.nickname || '匿名盗贼'}</span>
+                        <span>{comment.created_at?.substring(0, 10)}</span>
+                      </div>
+                      <p className="font-serif text-xs line-clamp-2 leading-relaxed">{comment.content}</p>
+                      
+                      <div className="flex justify-between items-center font-mono text-[10px] pt-1 opacity-60 border-t border-current/10">
+                        <span>
+                          {comment.has_media ? '[ MEDIA ] ' : ''}
+                          {comment.reply_count || 0} REPLIES
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingCommentId(comment.id);
+                          }}
+                          className="hover:underline text-red-400 opacity-80"
+                        >
+                          [ DELETE ]
+                        </button>
+                      </div>
+
+                      {/* 凭密码删除内联交互 */}
+                      {deletingCommentId === comment.id && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-2 p-2 border border-red-500/30 bg-red-950/20 space-y-2 text-[10px] font-mono"
+                        >
+                          <p className="text-red-400">请输入发表时设置的删除密码：</p>
+                          <div className="flex gap-2">
+                            <input
+                              type="password"
+                              placeholder="PASSWORD"
+                              value={deletePasswordInput}
+                              onChange={(e) => setDeletePasswordInput(e.target.value)}
+                              className="bg-transparent border border-current/20 p-1 flex-1 text-[10px]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteComment(comment.id)}
+                              className="bg-red-500 text-white px-2 py-1 font-bold"
+                            >
+                              [ CONFIRM ]
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setDeletingCommentId(null); setDeleteErrorMsg(null); }}
+                              className="opacity-60 px-1"
+                            >
+                              [ CANCEL ]
+                            </button>
+                          </div>
+                          {deleteErrorMsg && <p className="text-red-400 text-[9px]">{deleteErrorMsg}</p>}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 评论展开后的回复线程列表 */}
+                    {isSelected && (
+                      <div className="ml-4 space-y-2 border-l-2 border-current/20 pl-3 pt-1 animate-in fade-in duration-200">
+                        {replies.map((reply) => (
+                          <div
+                            key={reply.id}
+                            className="bg-white/40 dark:bg-zinc-900/40 p-3 border border-current/10 font-mono text-xs space-y-1"
+                          >
+                            <div className="flex justify-between items-center text-[10px] opacity-70">
+                              <span className="font-bold">{reply.nickname}</span>
+                              <span>{reply.created_at?.substring(0, 10)}</span>
+                            </div>
+                            <p className="font-serif text-[11px] opacity-90">{reply.content}</p>
+                          </div>
+                        ))}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyToUser(comment.nickname);
+                            document.getElementById('comment-input')?.focus();
+                          }}
+                          className="text-[10px] font-mono hover:underline opacity-80 pt-1"
+                        >
+                          [ REPLY TO {comment.nickname} ]
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="p-8 text-center font-mono text-xs opacity-40 border border-current/10">
+                [ NO COMMENTS YET / 暂无评论，欢迎留言 ]
+              </div>
+            )}
+          </div>
+
+          {/* 底部发表评论表单 */}
+          <form onSubmit={handlePostComment} className="space-y-3 font-mono text-xs pt-2">
+            {replyToUser && (
+              <div className="flex justify-between items-center text-[10px] opacity-80 border-b border-current/10 pb-1">
+                <span>REPLYING TO: @{replyToUser}</span>
+                <button
+                  type="button"
+                  onClick={() => { setReplyToUser(''); setSelectedComment(null); }}
+                  className="hover:underline"
+                >
+                  [ CANCEL REPLY ]
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                required
+                placeholder="NICKNAME / 昵称 *"
+                value={commentNickname}
+                onChange={(e) => setCommentNickname(e.target.value)}
+                className="bg-transparent border border-current/20 p-2 text-xs focus:outline-none"
+              />
+              <input
+                type="password"
+                placeholder="DELETE PASS / 删除密码"
+                value={commentPassword}
+                onChange={(e) => setCommentPassword(e.target.value)}
+                className="bg-transparent border border-current/20 p-2 text-xs focus:outline-none"
+              />
+            </div>
+
+            <textarea
+              id="comment-input"
+              rows={3}
+              required
+              placeholder={replyToUser ? `回复 @${replyToUser}...` : '发表您的听歌感想或对本作的见解...'}
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              className="w-full bg-transparent border border-current/20 p-2 text-xs font-serif leading-relaxed focus:outline-none"
+            />
+
+            <div className="flex justify-between items-center">
+              <label className="cursor-pointer text-[10px] opacity-70 hover:opacity-100 flex items-center space-x-1">
+                <span>[ + FILE / 附件 ]</span>
+                <input
+                  type="file"
+                  accept="image/*,audio/*"
+                  onChange={(e) => setCommentFile(e.target.files[0])}
+                  className="hidden"
+                />
+              </label>
+              {commentFile && <span className="text-[9px] opacity-60 truncate max-w-[120px]">{commentFile.name}</span>}
+
+              <button
+                type="submit"
+                className="px-4 py-1.5 font-bold transition-colors"
+                style={{ backgroundColor: themeColor, color: '#09090b' }}
+              >
+                [ SEND COMMENT ]
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>      {/* =================================================================== */}
+      {/* 全局 Modal 弹窗逻辑                                               */}
+      {/* =================================================================== */}
+      
+      {/* 1. 播放列表 Modal [ LIST ] */}
+      {showListModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div
+            style={dynamicShadow}
+            className="bg-white/95 dark:bg-zinc-900/95 max-w-md w-full p-6 border border-current/10 space-y-4 font-mono text-xs rounded-none"
+          >
+            <div className="flex justify-between items-center border-b border-current/20 pb-2">
+              <span className="font-bold">[ PLAYLIST / 在播歌单 ]</span>
+              <button
+                type="button"
+                onClick={() => setShowListModal(false)}
+                className="hover:underline font-bold"
+              >
+                [ CLOSE ]
+              </button>
+            </div>
+
+            <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+              {playlist && playlist.length > 0 ? (
+                playlist.map((track, idx) => {
+                  const isCurrent = currentTrack?.id === track.id;
+                  return (
+                    <div
+                      key={track.id || idx}
+                      onClick={() => playTrack(track, currentAlbum, playlist)}
+                      className={`p-2 border border-current/10 flex justify-between items-center cursor-pointer hover:bg-current/5 ${
+                        isCurrent ? 'font-bold' : 'opacity-80'
+                      }`}
+                    >
+                      <span className="truncate max-w-[80%]">
+                        {idx + 1}. {track.title}
+                      </span>
+                      {isCurrent && <span style={{ color: themeColor }}>[ PLAYING ]</span>}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="opacity-40 text-center py-4">[ PLAYLIST IS EMPTY ]</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. 无音源拦截 Modal */}
+      {noAudioSong && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div
+            style={dynamicShadow}
+            className="bg-white/95 dark:bg-zinc-900/95 max-w-sm w-full p-6 border border-current/10 space-y-4 font-mono text-xs rounded-none text-center"
+          >
+            <h3 className="font-bold border-b border-current/10 pb-2 text-red-400">
+              [ NO AUDIO SOURCE / 暂无音源 ]
+            </h3>
+            <p className="font-serif opacity-80 leading-relaxed">
+              曲目《{noAudioSong.title}》尚未在数据库中配置有效的音频链接。
+            </p>
+            <div className="pt-2 flex justify-center space-x-4">
+              <Link
+                href="/music/submit"
+                className="px-3 py-1 bg-emerald-500 text-zinc-950 font-bold hover:bg-emerald-400"
+              >
+                [ 补充音源 ]
+              </Link>
+              <button
+                type="button"
+                onClick={() => setNoAudioSong(null)}
+                className="px-3 py-1 border border-current/20 hover:bg-current/10"
+              >
+                [ 关闭 ]
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+
                   
