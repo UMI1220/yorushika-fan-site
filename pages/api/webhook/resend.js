@@ -1,7 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-// 关闭 Next.js 默认的 body 解析，以便某些情况下处理 raw body（Resend 通常发送 JSON，可以直接解析）
 export const config = {
   api: {
     bodyParser: {
@@ -23,23 +22,33 @@ export default async function handler(req, res) {
 
   try {
     const event = req.body;
-
-    // Resend Inbound Webhook 的数据结构通常包含邮件信息
-    // 检查是否为收信事件 (email.received 或类似的标准入站 payload)
+    
+    // 兼容 Resend 不同的 payload 嵌套格式
     const emailData = event.data || event;
     
-    const toField = emailData.to; // 数组或字符串，表示发到了哪个别名邮箱，例如 ["letter_a1b2c3d4@yorusend.com"]
-    const fromEmail = emailData.from; // 回信人的邮箱
+    // Resend 的 to 字段有时是字符串，有时是包含 email 属性的对象或数组
+    let toField = emailData.to;
+    if (Array.isArray(toField)) {
+      toField = toField[0];
+    }
+    const recipientEmail = typeof toField === 'object' && toField !== null ? toField.email : toField;
+    
+    // 同样兼容处理发件人
+    let fromField = emailData.from;
+    if (Array.isArray(fromField)) {
+      fromField = fromField[0];
+    }
+    const fromEmail = typeof fromField === 'object' && fromField !== null ? fromField.email : fromField;
+
     const subject = emailData.subject || '无主题回信';
     const textBody = emailData.text || emailData.html || '无正文内容';
 
-    if (!toField) {
+    if (!recipientEmail) {
       return.status(400).json({ error: 'Missing recipient in webhook' });
     }
 
-    // 提取收件地址中的别名 ID (例如从 letter_a1b2c3d4@yorusend.com 提取出 letter_a1b2c3d4)
-    const recipientAddress = Array.isArray(toField) ? toField[0] : toField;
-    const aliasId = recipientAddress.split('@')[0];
+    // 从收件地址中提取别名 ID (例如 letter_a1b2c3d4@yorushika-fan.top -> letter_a1b2c3d4)
+    const aliasId = recipientEmail.split('@')[0];
 
     if (!aliasId || !aliasId.startsWith('letter_')) {
       return res.status(400).json({ error: 'Invalid alias format' });
@@ -57,25 +66,28 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Original letter not found' });
     }
 
-    // 2. 判断当前回信人是谁，决定转发给谁
-    // 如果回信人是原始发件人，则转给已绑定的志愿者；如果是志愿者，则转给原始发件人
-    let targetEmail = '';
-    if (fromEmail.includes(letter.sender_email)) {
-      // 如果发件人自己再次回复，可能需要转给对应的志愿者（若有）
-      // 这里主要处理“收件人/志愿者回复原发件人”的场景：
-      targetEmail = letter.sender_email;
-    } else {
-      // 默认将外部回复转发给原发件人
-      targetEmail = letter.sender_email;
+    // 2. 确认目标转发对象
+    // 如果回信来自原发件人，则转给志愿者；如果是其他人（志愿者/收件人），则转给原发件人
+    let targetEmail = letter.sender_email;
+    if (fromEmail && fromEmail.includes(letter.sender_email)) {
+      // 如果原发件人自己又回了一封，且有绑定志愿者，可以转给志愿者
+      if (letter.assigned_volunteer_id) {
+        const { data: volunteer } = await supabase
+          .from('volunteers')
+          .select('email')
+          .eq('id', letter.assigned_volunteer_id)
+          .single();
+        if (volunteer) targetEmail = volunteer.email;
+      }
     }
 
     // 3. 通过 Resend 将回信安全转发给目标用户（隐藏真实邮箱）
     await resend.emails.send({
-      from: `夜邮中转站 <noreply@${process.env.RESEND_DOMAIN}>`,
+      from: `夜邮中转站 <noreply@yorushika-fan.top>`,
       to: targetEmail,
-      reply_to: `${aliasId}@${process.env.RESEND_DOMAIN}`,
+      reply_to: `${aliasId}@yorushika-fan.top`,
       subject: `Re: ${subject}`,
-      text: `收到来自“初识的友人”的回信：\n\n---\n${textBody}\n---\n\n继续回复本邮件，即可将思绪延续。`
+      text: `收到来自远方的回信：\n\n---\n${textBody}\n---\n\n继续直接回复本邮件，即可将思绪延续。`
     });
 
     // 4. 更新信件状态为已回复
