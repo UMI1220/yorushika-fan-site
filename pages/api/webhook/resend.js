@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     const textBody = emailData.text || emailData.html || '无正文内容';
 
     if (!recipientEmail) {
-      return.status(400).json({ error: 'Missing recipient in webhook' });
+      return res.status(400).json({ error: 'Missing recipient in webhook' });
     }
 
     // 从收件地址中提取别名 ID (例如 letter_a1b2c3d4@yorushika-fan.top -> letter_a1b2c3d4)
