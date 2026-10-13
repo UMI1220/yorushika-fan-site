@@ -30,7 +30,7 @@ export default function Navbar() {
         {/* 左侧：Logo 图片 + ヨルセンド 文字 */}
         <Link href="/" className="flex items-center space-x-3 group">
           <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-300 dark:border-zinc-700 shadow-sm">
-            <img src="/yoursend.jpg" alt="logo" className="w-full h-full object-cover" />
+            <img src="/yorusend.jpg" alt="logo" className="w-full h-full object-cover" />
           </div>
           <span className="text-base font-medium tracking-wider text-[#202124] dark:text-white group-hover:text-[#73C991] transition-colors">
             ヨルセンド <span className="text-xs font-normal text-gray-400 font-mono ml-1">夜邮</span>
@@ -47,7 +47,7 @@ export default function Navbar() {
 
         {/* 非线性动画弹出的 7 行菜单面板 */}
         {isOpen && (
-          <div className="absolute top-20 right-6 w-56 bg-white/90 dark:bg-zinc-900/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-gray-200 dark:border-zinc-800 p-2 flex flex-col space-y-1 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="absolute top-20 right-6 w-56 bg-white/90 dark:bg-zinc-900/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-gray-200 dark:border-zinc-800 p-2 flex flex-col space-y-2">
             {menuItems.map((item, index) => {
               // 计算是否是第一行或最后一行，赋予对应的圆角特征
               const isFirst = index === 0;
